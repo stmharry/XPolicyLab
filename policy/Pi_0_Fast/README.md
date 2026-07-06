@@ -95,6 +95,8 @@ bash train.sh RoboDojo cotrain arx_x5 joint 0 0
 bash train.sh RoboDojo cotrain arx_x5 joint 0 0,1,2,3
 ```
 
+By default, training reads the LeRobot repo produced by `process_data.sh`: `<bench_name>-<ckpt_name>-<env_cfg_type>-<action_type>`. Override this with `OPENPI_LEROBOT_REPO_ID` when reusing an existing dataset.
+
 The usual checkpoint directory is `checkpoints/<bench_name>-<ckpt_name>-<env_cfg_type>-<action_type>-<seed>/`. Pass that full directory name as `ckpt_name` during evaluation.
 
 ## Deployment and Evaluation
@@ -210,6 +212,7 @@ Frequently used environment variables detected in the adapter scripts:
 | `JAX_COMPILATION_CACHE_DIR` | Optional override used by the local scripts or upstream runtime. |
 | `LOCAL_CACHE_ROOT` | Optional override used by the local scripts or upstream runtime. |
 | `OPENPI_DATA_MODE` | Optional override used by the local scripts or upstream runtime. |
+| `OPENPI_LEROBOT_REPO_ID` | Overrides the LeRobot repo id used by `train.sh`; defaults to `<bench_name>-<ckpt_name>-<env_cfg_type>-<action_type>`. |
 | `OPENPI_LOCAL_CACHE_ROOT` | Optional override used by the local scripts or upstream runtime. |
 | `OPENPI_ROOT` | Optional override used by the local scripts or upstream runtime. |
 | `OPENPI_SRC` | Optional override used by the local scripts or upstream runtime. |

@@ -18,6 +18,9 @@ POLICY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ckpt_setting="${bench_name}-${ckpt_name}-${env_cfg_type}-${action_type}-${seed}"
 ckpt_dir="${POLICY_DIR}/checkpoints/${ckpt_setting}"
 train_config_name="${OPENPI_TRAIN_CONFIG_NAME:-pi0_fast_aloha_full_sim_arx-x5_seed_0}"
+# LeRobot repo produced by process_data.py (repo_id=<bench>-<ckpt>-<env>-<action>);
+# override --data.repo-id so training does not fall back to the config default.
+lerobot_repo_id="${OPENPI_LEROBOT_REPO_ID:-${bench_name}-${ckpt_name}-${env_cfg_type}-${action_type}}"
 
 mkdir -p "${ckpt_dir}"
 export CUDA_VISIBLE_DEVICES="${gpu_id}"
@@ -31,6 +34,7 @@ export HF_DATASETS_CACHE="${LOCAL_CACHE_ROOT}/hf/datasets"
 export JAX_COMPILATION_CACHE_DIR="${LOCAL_CACHE_ROOT}/jax"
 
 echo "[Pi_0_Fast] train_config_name=${train_config_name}"
+echo "[Pi_0_Fast] lerobot_repo_id=${lerobot_repo_id}"
 echo "[Pi_0_Fast] local_cache_root=${LOCAL_CACHE_ROOT}"
 echo "[Pi_0_Fast] checkpoint_dir=${ckpt_dir}"
 
@@ -38,6 +42,7 @@ cd "${POLICY_DIR}/openpi/"
 XLA_PYTHON_CLIENT_MEM_FRACTION="${XLA_PYTHON_CLIENT_MEM_FRACTION:-0.9}" \
   uv run scripts/train.py "${train_config_name}" \
     --exp-name="${ckpt_setting}" \
+    --data.repo-id="${lerobot_repo_id}" \
     --checkpoint-dir-override="${ckpt_dir}" \
     --seed="${seed}" \
     --overwrite

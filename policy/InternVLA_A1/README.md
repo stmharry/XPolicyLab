@@ -86,6 +86,8 @@ The usual checkpoint directory is `checkpoints/<bench_name>-<ckpt_name>-<env_cfg
 
 `train.sh` and `deploy.yml` expect the shared model assets at `checkpoints/shared/Cosmos-Tokenizer-CI8x8` and `checkpoints/shared/Qwen3-VL-2B-Instruct` by default. If those assets live elsewhere, export `COSMOS_PATH` and `QWEN3_2B_PATH`, or set `cosmos_path` and `qwen3_2b_path` in `deploy.yml` before training/evaluation.
 
+Training also fine-tunes from the base `InternVLA-A1-3B` weights, expected at `checkpoints/shared/InternVLA-A1-3B` by default. The finetune launcher runs fully offline (`HF_HUB_OFFLINE=1`), so this must be a local path — export `PRETRAINED_PATH` if the base weights live elsewhere.
+
 ## Deployment and Evaluation
 
 What it does: serves the policy through XPolicyLab and connects it to a RoboDojo evaluation client. Use `eval.sh` for a same-machine smoke test, or split server/client scripts for debugging and multi-machine evaluation.
@@ -201,6 +203,7 @@ Frequently used environment variables detected in the adapter scripts:
 | `CONDA_ENV` | Optional override used by the local scripts or upstream runtime. |
 | `CONDA_PREFIX` | Optional override used by the local scripts or upstream runtime. |
 | `COSMOS_PATH` | Optional override used by the local scripts or upstream runtime. |
+| `PRETRAINED_PATH` | Base `InternVLA-A1-3B` weights for `train.sh`; defaults to `checkpoints/shared/InternVLA-A1-3B`. |
 | `HF_HOME` | Optional override used by the local scripts or upstream runtime. |
 | `HF_LEROBOT_HOME` | Optional override used by the local scripts or upstream runtime. |
 | `INTERNVLA_ACTION_MODE` | Optional override used by the local scripts or upstream runtime. |

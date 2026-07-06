@@ -27,6 +27,9 @@ export HF_HOME="${HF_HOME:-${POLICY_DIR}/.hf_cache}"
 export HF_LEROBOT_HOME="${HF_LEROBOT_HOME:-${HF_HOME}/lerobot}"
 export COSMOS_PATH="${COSMOS_PATH:-${POLICY_DIR}/checkpoints/shared/Cosmos-Tokenizer-CI8x8}"
 export QWEN3_2B_PATH="${QWEN3_2B_PATH:-${POLICY_DIR}/checkpoints/shared/Qwen3-VL-2B-Instruct}"
+# Base InternVLA-A1-3B weights the finetune launches from; offline mode is forced
+# in the launch script, so this must point at a local checkpoint.
+export PRETRAINED_PATH="${PRETRAINED_PATH:-${POLICY_DIR}/checkpoints/shared/InternVLA-A1-3B}"
 export PROC_PER_NODE="${PROC_PER_NODE:-$(tr ',' '\n' <<< "${gpu_id}" | sed '/^$/d' | wc -l | xargs)}"
 export JOB_NAME="${ckpt_setting}"
 export OUTPUT_DIR="${ckpt_dir}"

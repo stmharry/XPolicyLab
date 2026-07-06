@@ -88,7 +88,9 @@ class Model(ModelTemplate):
         self.policy = BeingHPolicy(
             model_path=model_path,
             data_config_name=data_config_name,
-            bench_name=bench_name,
+            # Upstream BeingHPolicy expects `dataset_name`; keep the XPolicyLab
+            # `bench_name` value but pass it under the upstream parameter name.
+            dataset_name=bench_name,
             embodiment_tag=embodiment_tag,
             instruction_template=instruction_template,
             prop_pos=prop_pos,

@@ -221,9 +221,11 @@ Frequently used environment variables detected in the adapter scripts:
 | `JOINT_CONTROL_INDICES` | Optional override used by the local scripts or upstream runtime. |
 | `LAUNCH_VA_SERVER` | Optional override used by the local scripts or upstream runtime. |
 | `LEROBOT_DATASET_REPO_ID` | Optional override used by the local scripts or upstream runtime. |
+| `LINGBOT_VA_BASE_MODEL_PATH` | Base model path for the wan_va backend; used when `deploy.yml` `base_model_path` is null. |
 
 ## Notes
 
 - Keep `ckpt_name` stable between data processing, training, and evaluation. For data-size ablations, encode the subset in `ckpt_name` such as `stack_bowls_50ep`.
 - `task_name` is only the evaluation task; multi-task checkpoints can be evaluated on different tasks without renaming the checkpoint directory.
 - Prefer running `setup_eval_policy_server.sh` and `setup_eval_env_client.sh` separately when debugging dependency, CUDA, or model-loading issues.
+- `eval.sh` auto-launches the wan_va backend (which holds the real weights). It requires a base model path: set `LINGBOT_VA_BASE_MODEL_PATH` or `base_model_path` in `deploy.yml`. To reuse an already-running backend, export `LINGBOT_VA_VA_HOST` / `LINGBOT_VA_VA_PORT`.

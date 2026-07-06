@@ -84,6 +84,7 @@ if [[ "${LAUNCH_VA_SERVER}" == "1" ]]; then
         LVA_SCRIPT_DIR="${SCRIPT_DIR}" \
         LVA_CONDA_ENV="${policy_conda_env}" \
         LVA_CHECKPOINT_PATH="${VA_CHECKPOINT_PATH}" \
+        LVA_BASE_MODEL_PATH="${LINGBOT_VA_BASE_MODEL_PATH:-}" \
         LVA_CONFIG_NAME="${CONFIG_NAME}" \
         LVA_MASTER_PORT="${va_master_port}" \
         LVA_GPU_ID="${policy_gpu_id}" \
@@ -92,16 +93,20 @@ if [[ "${LAUNCH_VA_SERVER}" == "1" ]]; then
             set -eo pipefail
             source "$(conda info --base)/etc/profile.d/conda.sh"
             conda activate "${LVA_CONDA_ENV}"
-            base_model_path=$(python - "${LVA_CURRENT_DIR}/deploy.yml" <<PY
+            # Prefer LINGBOT_VA_BASE_MODEL_PATH; fall back to deploy.yml base_model_path.
+            base_model_path="${LVA_BASE_MODEL_PATH}"
+            if [[ -z "${base_model_path}" ]]; then
+                base_model_path=$(python - "${LVA_SCRIPT_DIR}/deploy.yml" <<PY
 import sys, yaml
 print(yaml.safe_load(open(sys.argv[1], encoding="utf-8")).get("base_model_path", "") or "")
 PY
 )
+            fi
             export CHECKPOINT_PATH="${LVA_CHECKPOINT_PATH}"
             [[ -n "${base_model_path}" ]] && export BASE_MODEL_PATH="${base_model_path}"
             export CONFIG_NAME="${LVA_CONFIG_NAME}"
             export MASTER_PORT="${LVA_MASTER_PORT}"
-            cd "${LVA_CURRENT_DIR}"
+            cd "${LVA_SCRIPT_DIR}"
             exec bash launch_wan_va_server.sh "${LVA_GPU_ID}" "${LVA_PORT}"
         ' &
     VA_SERVER_PID=$!
