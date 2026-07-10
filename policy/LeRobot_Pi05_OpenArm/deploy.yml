@@ -1,0 +1,16 @@
+policy_name: LeRobot_Pi05_OpenArm
+protocol: ws
+host: localhost
+port: 6000
+bench_name: null
+task_name: null
+env_cfg_type: openarm_cloth_folding
+seed: 0
+eval_batch: false
+action_type: joint
+action_dim: 16
+checkpoint_path: checkpoints/folding_final
+checkpoint_repo: lerobot-data-collection/folding_final
+checkpoint_revision: 695abe40dbf3aac04efda59c1501d748681fa0fb
+prompt: Fold the T-shirt properly.
+chunk_size: 30
