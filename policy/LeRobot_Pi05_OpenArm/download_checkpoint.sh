@@ -7,3 +7,5 @@ conda activate "${1:-lerobot-pi05}"
 hf download lerobot-data-collection/folding_final \
   --revision 695abe40dbf3aac04efda59c1501d748681fa0fb \
   --local-dir "${SCRIPT_DIR}/checkpoints/folding_final"
+printf '%s\n' '695abe40dbf3aac04efda59c1501d748681fa0fb' \
+  > "${SCRIPT_DIR}/checkpoints/folding_final/.revision"

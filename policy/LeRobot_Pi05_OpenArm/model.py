@@ -3,16 +3,14 @@ from pathlib import Path
 from typing import Any
 
 import cv2
-import numpy as np
-import torch
-
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies.factory import make_pre_post_processors
 from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 from lerobot.policies.utils import prepare_observation_for_inference
+import numpy as np
+import torch
 
 from XPolicyLab.model_template import ModelTemplate
-
 
 RIGHT_LIMITS = np.asarray(
     [[-75, 75], [-9, 90], [-85, 85], [0, 135], [-85, 85], [-40, 40], [-80, 80]], dtype=np.float32
@@ -44,17 +42,17 @@ def pack_openarm_state(observation: dict[str, Any]) -> np.ndarray:
     return packed
 
 
-def unpack_openarm_action(action) -> dict[str, dict[str, list[float]]]:
+def unpack_openarm_action(action) -> dict[str, np.ndarray]:
     action = np.asarray(action, dtype=np.float32).reshape(-1)
     if action.shape != (16,) or not np.isfinite(action).all():
         raise ValueError(f"expected finite OpenARM action shape (16,), got {action.shape}")
     right_deg = np.clip(action[:7], RIGHT_LIMITS[:, 0], RIGHT_LIMITS[:, 1])
     left_deg = np.clip(action[8:15], LEFT_LIMITS[:, 0], LEFT_LIMITS[:, 1])
     return {
-        "left_arm_joint_state": {"position": np.deg2rad(left_deg).tolist(), "velocity": [0.0] * 7},
-        "left_ee_joint_state": {"position": [float(gripper_degrees_to_m(action[15]))], "velocity": [0.0]},
-        "right_arm_joint_state": {"position": np.deg2rad(right_deg).tolist(), "velocity": [0.0] * 7},
-        "right_ee_joint_state": {"position": [float(gripper_degrees_to_m(action[7]))], "velocity": [0.0]},
+        "left_arm_joint_state": np.deg2rad(left_deg).astype(np.float32),
+        "left_ee_joint_state": np.asarray([gripper_degrees_to_m(action[15])], dtype=np.float32),
+        "right_arm_joint_state": np.deg2rad(right_deg).astype(np.float32),
+        "right_ee_joint_state": np.asarray([gripper_degrees_to_m(action[7])], dtype=np.float32),
     }
 
 
@@ -104,7 +102,7 @@ class Model(ModelTemplate):
         config = PreTrainedConfig.from_pretrained(checkpoint)
         if config.input_features["observation.state"].shape != (16,):
             raise ValueError("folding_final checkpoint must accept 16-dimensional state")
-        self.policy = PI05Policy.from_pretrained(checkpoint, config=config).eval()
+        self.policy = PI05Policy.from_pretrained(checkpoint, config=config).to(self.device).eval()
         self.preprocessor, self.postprocessor = make_pre_post_processors(
             policy_cfg=config,
             pretrained_path=str(checkpoint),

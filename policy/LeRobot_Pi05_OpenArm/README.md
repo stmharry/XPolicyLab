@@ -7,6 +7,7 @@ three-camera ordering, saved processors, and 30-step action chunks.
 ```bash
 bash install.sh lerobot-pi05
 bash download_checkpoint.sh lerobot-pi05
+conda run -n lerobot-pi05 python smoke_test.py
 ```
 
 Run from the RoboDojo parent checkout with `--env-cfg openarm_cloth_folding`,
