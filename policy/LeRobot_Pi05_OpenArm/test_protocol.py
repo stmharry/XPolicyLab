@@ -39,3 +39,9 @@ def test_xpolicylab_registry_exposes_16d_openarm_profile():
     root = Path(__file__).resolve().parents[2]
     info = json.loads((root / "utils/robot/_robot_info.json").read_text())["openarm_cloth_folding"]
     assert sum(info["arm_dim"]) + sum(info["ee_dim"]) == 16
+
+
+def test_dyna_profile_preserves_the_same_openarm_action_contract():
+    root = Path(__file__).resolve().parents[2]
+    registry = json.loads((root / "utils/robot/_robot_info.json").read_text())
+    assert registry["openarm_cloth_folding_dyna"] == registry["openarm_cloth_folding"]
