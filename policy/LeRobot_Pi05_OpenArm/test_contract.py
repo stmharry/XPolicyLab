@@ -1,6 +1,9 @@
 import numpy as np
+import torch
+from lerobot.processor import RelativeActionsProcessorStep
 
 from XPolicyLab.policy.LeRobot_Pi05_OpenArm.model import (
+    _reanchor_relative_rtc_prefix,
     gripper_degrees_to_m,
     gripper_m_to_degrees,
     pack_openarm_state,
@@ -55,3 +58,18 @@ def test_rejects_wrong_or_non_finite_actions():
             pass
         else:
             raise AssertionError("invalid action was accepted")
+
+
+def test_relative_rtc_prefix_is_reanchored_to_current_state():
+    names = [f"joint_{index}.pos" for index in range(16)]
+    relative = RelativeActionsProcessorStep(enabled=True, exclude_joints=[], action_names=names)
+    current = torch.arange(16, dtype=torch.float32)
+    previous_absolute = torch.stack((current + 1, current + 2))
+    reanchored = _reanchor_relative_rtc_prefix(
+        previous_absolute,
+        current,
+        relative,
+        normalizer_step=None,
+        device=torch.device("cpu"),
+    )
+    torch.testing.assert_close(reanchored, torch.stack((torch.ones(16), torch.full((16,), 2.0))))

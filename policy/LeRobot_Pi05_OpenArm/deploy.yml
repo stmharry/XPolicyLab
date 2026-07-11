@@ -14,3 +14,13 @@ checkpoint_repo: lerobot-data-collection/folding_final
 checkpoint_revision: 695abe40dbf3aac04efda59c1501d748681fa0fb
 prompt: Fold the T-shirt properly.
 chunk_size: 30
+fps: 30
+duration_s: 2000
+interpolation_multiplier: 3
+max_relative_target_deg: 8.0
+rtc:
+  enabled: true
+  action_queue_size: 30
+  execution_horizon: 20
+  max_guidance_weight: 5.0
+  prefix_attention_schedule: LINEAR

@@ -10,5 +10,9 @@
     "piper_x": {
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]
+    },
+    "openarm_cloth_folding": {
+        "arm_dim": [7, 7],
+        "ee_dim": [1, 1]
     }
 }
