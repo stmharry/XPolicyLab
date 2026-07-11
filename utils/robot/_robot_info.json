@@ -14,9 +14,5 @@
     "openarm_cloth_folding": {
         "arm_dim": [7, 7],
         "ee_dim": [1, 1]
-    },
-    "openarm_cloth_folding_dyna": {
-        "arm_dim": [7, 7],
-        "ee_dim": [1, 1]
     }
 }

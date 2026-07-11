@@ -14,9 +14,9 @@ conda run -n lerobot-pi05 python smoke_test.py
 ```
 
 Run from the RoboDojo parent checkout with `--env-cfg openarm_cloth_folding`,
-or use `openarm_cloth_folding_dyna` for the checkpoint-compatible DYNA
-base-camera diagnostic, `--action-type joint`, and the checkpoint label
-`folding_final`.
+`--action-type joint`, and the checkpoint label `folding_final`. This canonical
+environment uses the available DYNA base camera while preserving the
+checkpoint's observation and action contract.
 
 Set `ROBODOJO_OPENARM_ZERO_ACTION=1` to run the same transport and simulator
 path while holding the observed OpenARM state, without loading checkpoint
