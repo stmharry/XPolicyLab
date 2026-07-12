@@ -166,7 +166,7 @@ class _RolloutTrace:
 
 
 def _diagnostic_mode() -> str:
-    mode = os.environ.get("ROBODOJO_OPENARM_RTC_MODE", "current").strip().lower()
+    mode = os.environ.get("ROBODOJO_OPENARM_RTC_MODE", "official").strip().lower()
     if mode not in {"current", "official", "synchronous"}:
         raise ValueError("ROBODOJO_OPENARM_RTC_MODE must be current, official, or synchronous")
     return mode

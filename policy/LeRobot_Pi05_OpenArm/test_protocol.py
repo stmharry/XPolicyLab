@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from XPolicyLab.policy.LeRobot_Pi05_OpenArm.deploy import _ActionQueue
+from XPolicyLab.policy.LeRobot_Pi05_OpenArm.deploy import _ActionQueue, _diagnostic_mode
 from XPolicyLab.policy.LeRobot_Pi05_OpenArm.protocol import (
     clamp_relative_target,
     interpolate_action,
@@ -53,3 +53,8 @@ def test_action_queue_exposes_original_and_processed_leftovers_separately():
     np.testing.assert_array_equal(queue.processed_leftover(), processed[3:])
     np.testing.assert_array_equal(queue.original_leftover(), original[3:])
     assert queue.action_index() == 1
+
+
+def test_official_rtc_is_the_default(monkeypatch):
+    monkeypatch.delenv("ROBODOJO_OPENARM_RTC_MODE", raising=False)
+    assert _diagnostic_mode() == "official"
