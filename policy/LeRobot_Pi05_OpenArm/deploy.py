@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 import math
 import os
+from pathlib import Path
 from threading import Lock, Thread
 import time
 
@@ -14,6 +16,7 @@ from XPolicyLab.policy.LeRobot_Pi05_OpenArm.protocol import (
     ACTION_QUEUE_SIZE,
     INTERPOLATION_MULTIPLIER,
     POLICY_FPS,
+    RTC_EXECUTION_HORIZON,
     clamp_relative_target,
     finite_action_chunk,
     interpolate_action,
@@ -48,6 +51,16 @@ class _ActionQueue:
                 return None
             return self._processed[self._index :].copy()
 
+    def original_leftover(self) -> np.ndarray | None:
+        with self._lock:
+            if self._index >= len(self._original):
+                return None
+            return self._original[self._index :].copy()
+
+    def action_index(self) -> int:
+        with self._lock:
+            return self._index
+
     def merge(self, processed, original, real_delay: int) -> None:
         processed = finite_action_chunk(processed)
         original = finite_action_chunk(original)
@@ -59,14 +72,23 @@ class _ActionQueue:
 
 
 class _InferenceRequest:
-    def __init__(self, model_client, observation: dict, previous_absolute, inference_delay: int):
+    def __init__(
+        self,
+        model_client,
+        observation: dict,
+        previous_actions,
+        inference_delay: int,
+        *,
+        prefix_space: str,
+        action_index: int,
+    ):
         request_observation = deepcopy(observation)
         request_observation["_rtc"] = {
             "inference_delay": int(inference_delay),
-            "previous_absolute_actions": (
-                None if previous_absolute is None else np.asarray(previous_absolute).tolist()
-            ),
+            "prefix_space": prefix_space,
+            "previous_actions": None if previous_actions is None else np.asarray(previous_actions).tolist(),
         }
+        self.action_index = int(action_index)
         self.result = None
         self.error = None
         self.latency_s = 0.0
@@ -107,6 +129,70 @@ def _merge_finished_request(request: _InferenceRequest, queue: _ActionQueue, lat
     latencies.append(request.latency_s)
 
 
+class _RolloutTrace:
+    def __init__(self, task_env, mode: str):
+        configured = os.environ.get("ROBODOJO_OPENARM_TRACE_PATH")
+        self.enabled = bool(
+            configured or os.environ.get("ROBODOJO_OPENARM_TRACE") == "1" or mode != "current"
+        )
+        self._file = None
+        if not self.enabled:
+            self.path = None
+            return
+        self.path = Path(configured) if configured else Path(task_env.save_dir) / "openarm_trace.jsonl"
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = self.path.open("w", encoding="utf-8")
+        self.write("metadata", mode=mode, policy_fps=POLICY_FPS)
+
+    @staticmethod
+    def _value(value):
+        if isinstance(value, np.ndarray):
+            return value.tolist()
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    def write(self, event: str, **values) -> None:
+        if not self.enabled:
+            return
+        payload = {"event": event, "monotonic_s": time.monotonic()}
+        payload.update({key: self._value(value) for key, value in values.items()})
+        self._file.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        self._file.flush()
+
+    def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+
+
+def _diagnostic_mode() -> str:
+    mode = os.environ.get("ROBODOJO_OPENARM_RTC_MODE", "current").strip().lower()
+    if mode not in {"current", "official", "synchronous"}:
+        raise ValueError("ROBODOJO_OPENARM_RTC_MODE must be current, official, or synchronous")
+    return mode
+
+
+def _camera_summaries(observation: dict) -> dict:
+    summaries = {}
+    for name, value in observation.get("vision", {}).items():
+        if isinstance(value, dict):
+            value = value.get("color", value.get("rgb"))
+        image = np.asarray(value)
+        if image.ndim != 3 or image.shape[-1] not in (3, 4):
+            summaries[name] = {"shape": list(image.shape), "encoded": image.ndim == 1}
+            continue
+        rgb = image[..., :3].astype(np.float32)
+        if np.issubdtype(image.dtype, np.floating) and rgb.max(initial=0.0) <= 1.0:
+            rgb *= 255.0
+        summaries[name] = {
+            "shape": list(image.shape),
+            "mean_rgb": rgb.mean(axis=(0, 1)).tolist(),
+            "black_pixel_fraction": float(np.all(rgb <= 2.0, axis=-1).mean()),
+            "saturated_pixel_fraction": float(np.all(rgb >= 253.0, axis=-1).mean()),
+        }
+    return summaries
+
+
 def eval_one_episode(TASK_ENV, model_client):
     smoke_steps = os.environ.get("ROBODOJO_OPENARM_SMOKE_STEPS")
     if smoke_steps is not None:
@@ -116,29 +202,72 @@ def eval_one_episode(TASK_ENV, model_client):
         if TASK_ENV.step_lim < max((0, 10, 30)):
             raise ValueError("visual smoke must include reference frame 30")
     model_client.call(func_name="reset")
+    mode = _diagnostic_mode()
+    trace = _RolloutTrace(TASK_ENV, mode)
     queue = _ActionQueue()
     latencies: list[float] = []
     previous_policy_action = None
     outer_deadline = time.monotonic() + 2000.0
     current_observation = TASK_ENV.get_obs()
-    request = _InferenceRequest(model_client, current_observation, None, inference_delay=0)
+    trace.write("observation", step=0, state=pack_openarm_state(current_observation))
+    trace.write("camera_summary", step=0, cameras=_camera_summaries(current_observation))
+    request = _InferenceRequest(
+        model_client,
+        current_observation,
+        None,
+        inference_delay=0,
+        prefix_space="none",
+        action_index=0,
+    )
 
     # There is no prior chunk to execute during cold start.
+    request.wait()
+    trace.write(
+        "inference",
+        latency_s=request.latency_s,
+        action_index_before=request.action_index,
+        action_index_after=queue.action_index(),
+        original_actions=np.asarray(request.result["original_actions"]),
+        processed_actions=np.asarray(request.result["processed_actions"]),
+    )
     _merge_finished_request(request, queue, latencies)
     request = None
 
     while not TASK_ENV.is_episode_end() and time.monotonic() < outer_deadline:
         if request is not None and request.done:
+            request.wait()
+            trace.write(
+                "inference",
+                latency_s=request.latency_s,
+                action_index_before=request.action_index,
+                action_index_after=queue.action_index(),
+                original_actions=np.asarray(request.result["original_actions"]),
+                processed_actions=np.asarray(request.result["processed_actions"]),
+            )
             _merge_finished_request(request, queue, latencies)
             request = None
 
-        if request is None and queue.qsize() <= ACTION_QUEUE_SIZE:
+        threshold = ACTION_QUEUE_SIZE if mode == "current" else ACTION_QUEUE_SIZE - RTC_EXECUTION_HORIZON
+        if mode == "synchronous":
+            threshold = 0
+        if request is None and queue.qsize() <= threshold:
             historical_delay = math.ceil((max(latencies) if latencies else 0.0) * POLICY_FPS)
+            if mode == "official":
+                previous_actions = queue.original_leftover()
+                prefix_space = "original"
+            elif mode == "current":
+                previous_actions = queue.processed_leftover()
+                prefix_space = "absolute"
+            else:
+                previous_actions = None
+                prefix_space = "none"
             request = _InferenceRequest(
                 model_client,
                 current_observation,
-                queue.processed_leftover(),
-                inference_delay=historical_delay,
+                previous_actions,
+                inference_delay=0 if mode == "synchronous" else historical_delay,
+                prefix_space=prefix_space,
+                action_index=queue.action_index(),
             )
 
         policy_action = queue.get()
@@ -157,7 +286,17 @@ def eval_one_episode(TASK_ENV, model_client):
         current_degrees = pack_openarm_state(current_observation)
         safe_actions = []
         for target in interpolated:
-            current_degrees = clamp_relative_target(target, current_degrees)
+            unclamped = np.asarray(target, dtype=np.float32)
+            clamped = clamp_relative_target(unclamped, current_degrees)
+            trace.write(
+                "control_target",
+                step=int(TASK_ENV.take_action_cnt[0]) + 1,
+                measured_before=current_degrees,
+                target=unclamped,
+                clamped=clamped,
+                clamp_delta=clamped - unclamped,
+            )
+            current_degrees = clamped
             safe_actions.append(unpack_openarm_action(current_degrees))
 
         if len(safe_actions) == INTERPOLATION_MULTIPLIER:
@@ -171,12 +310,19 @@ def eval_one_episode(TASK_ENV, model_client):
 
         if not TASK_ENV.is_episode_end():
             current_observation = TASK_ENV.get_obs()
+            trace.write(
+                "observation",
+                step=int(TASK_ENV.take_action_cnt[0]),
+                state=pack_openarm_state(current_observation),
+                queue_size=queue.qsize(),
+            )
 
         elapsed = time.perf_counter() - step_started
         time.sleep(max(0.0, 1.0 / POLICY_FPS - elapsed))
 
     if request is not None:
         request.wait()
+    trace.close()
 
 
 def eval_one_episode_batch(TASK_ENV, model_client):

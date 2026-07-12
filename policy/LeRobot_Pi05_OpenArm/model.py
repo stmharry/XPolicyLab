@@ -197,21 +197,25 @@ class Model(ModelTemplate):
 
         rtc_meta = observation.get("_rtc", {})
         inference_delay = max(0, int(rtc_meta.get("inference_delay", 0)))
-        previous_absolute = rtc_meta.get("previous_absolute_actions")
+        previous_actions = rtc_meta.get("previous_actions")
+        prefix_space = rtc_meta.get("prefix_space", "none")
         previous_prefix = None
-        if previous_absolute is not None:
-            previous_absolute = torch.as_tensor(previous_absolute, dtype=torch.float32)
-            if previous_absolute.ndim != 2 or previous_absolute.shape[-1] != 16:
-                raise ValueError(
-                    "RTC previous_absolute_actions must have shape (remaining_steps, 16)"
+        if previous_actions is not None:
+            previous_actions = torch.as_tensor(previous_actions, dtype=torch.float32)
+            if previous_actions.ndim != 2 or previous_actions.shape[-1] != 16:
+                raise ValueError("RTC previous_actions must have shape (remaining_steps, 16)")
+            if prefix_space == "original":
+                previous_prefix = previous_actions.to(self.device)
+            elif prefix_space == "absolute":
+                previous_prefix = _reanchor_relative_rtc_prefix(
+                    previous_absolute=previous_actions,
+                    current_state=torch.as_tensor(packed_state, dtype=torch.float32),
+                    relative_step=self.relative_step,
+                    normalizer_step=self.normalizer_step,
+                    device=self.device,
                 )
-            previous_prefix = _reanchor_relative_rtc_prefix(
-                previous_absolute=previous_absolute,
-                current_state=torch.as_tensor(packed_state, dtype=torch.float32),
-                relative_step=self.relative_step,
-                normalizer_step=self.normalizer_step,
-                device=self.device,
-            )
+            else:
+                raise ValueError("RTC prefix_space must be original or absolute when a prefix is supplied")
 
         # RTC guidance differentiates its overlap objective with respect to the
         # candidate action chunk. The official evaluator therefore calls this

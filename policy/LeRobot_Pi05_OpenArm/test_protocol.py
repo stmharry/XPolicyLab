@@ -1,8 +1,10 @@
-import numpy as np
-import pytest
 import json
 from pathlib import Path
 
+import numpy as np
+import pytest
+
+from XPolicyLab.policy.LeRobot_Pi05_OpenArm.deploy import _ActionQueue
 from XPolicyLab.policy.LeRobot_Pi05_OpenArm.protocol import (
     clamp_relative_target,
     interpolate_action,
@@ -39,3 +41,15 @@ def test_xpolicylab_registry_exposes_16d_openarm_profile():
     root = Path(__file__).resolve().parents[2]
     info = json.loads((root / "utils/robot/_robot_info.json").read_text())["openarm_cloth_folding"]
     assert sum(info["arm_dim"]) + sum(info["ee_dim"]) == 16
+
+
+def test_action_queue_exposes_original_and_processed_leftovers_separately():
+    queue = _ActionQueue()
+    processed = np.arange(30 * 16, dtype=np.float32).reshape(30, 16)
+    original = processed + 10_000
+    queue.merge(processed, original, real_delay=2)
+
+    np.testing.assert_array_equal(queue.get(), processed[2])
+    np.testing.assert_array_equal(queue.processed_leftover(), processed[3:])
+    np.testing.assert_array_equal(queue.original_leftover(), original[3:])
+    assert queue.action_index() == 1

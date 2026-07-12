@@ -1,6 +1,6 @@
+from lerobot.processor import RelativeActionsProcessorStep
 import numpy as np
 import torch
-from lerobot.processor import RelativeActionsProcessorStep
 
 from XPolicyLab.policy.LeRobot_Pi05_OpenArm.model import (
     _reanchor_relative_rtc_prefix,
@@ -73,3 +73,9 @@ def test_relative_rtc_prefix_is_reanchored_to_current_state():
         device=torch.device("cpu"),
     )
     torch.testing.assert_close(reanchored, torch.stack((torch.ones(16), torch.full((16,), 2.0))))
+
+
+def test_original_rtc_prefix_needs_no_absolute_reanchoring():
+    original = torch.arange(32, dtype=torch.float32).reshape(2, 16)
+    copied = original.to(torch.device("cpu"))
+    torch.testing.assert_close(copied, original)
