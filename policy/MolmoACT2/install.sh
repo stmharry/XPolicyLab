@@ -5,11 +5,12 @@
 # Usage:
 # bash install.sh # lerobot training environment + XPolicyLab(RoboDojo default, and eval use)
 # bash install.sh train # same as above
-# bash install.sh infer # only the upstream FastAPI server venv, not XPolicyLab eval
-# bash install.sh all # lerobot + XPolicyLab + FastAPI servertwo venvs
+# bash install.sh infer # original-HF inference environment + XPolicyLab
+# bash install.sh all # LeRobot training and original-HF inference environments
 #
 # Optional environment variables:
 # MOLMOACT2_REPO default https://github.com/allenai/molmoact2.git
+# MOLMOACT2_REVISION pinned source contract used by the public YAM profile
 # LEROBOT_REPO default https://github.com/allenai/lerobot
 # LEROBOT_BRANCH default molmoact2-policy
 # SKIP_XPOLICYLAB=1 skip XPolicyLab installation
@@ -23,6 +24,7 @@ LEROBOT_DIR="${MOLMOACT2_DIR}/lerobot"
 XPOLICYLAB_ROOT="$(cd "${POLICY_DIR}/../.." && pwd)"
 
 MOLMOACT2_REPO="${MOLMOACT2_REPO:-https://github.com/allenai/molmoact2.git}"
+MOLMOACT2_REVISION="${MOLMOACT2_REVISION:-c2282820f9b188b60e66ea1636b3efd81c45cbb4}"
 LEROBOT_REPO="${LEROBOT_REPO:-https://github.com/allenai/lerobot}"
 LEROBOT_BRANCH="${LEROBOT_BRANCH:-molmoact2-policy}"
 
@@ -41,11 +43,21 @@ init_molmoact2_source() {
 
   if [[ -d "${MOLMOACT2_DIR}/.git" ]]; then
     echo "molmoact2 已存在: ${MOLMOACT2_DIR}"
-    git -C "${MOLMOACT2_DIR}" submodule update --init --recursive
+    git -C "${MOLMOACT2_DIR}" fetch --depth 1 origin "${MOLMOACT2_REVISION}"
   else
     echo "clone ${MOLMOACT2_REPO} -> ${MOLMOACT2_DIR}"
-    git clone --recurse-submodules "${MOLMOACT2_REPO}" "${MOLMOACT2_DIR}"
+    GIT_LFS_SKIP_SMUDGE=1 git clone --no-checkout "${MOLMOACT2_REPO}" "${MOLMOACT2_DIR}"
+    git -C "${MOLMOACT2_DIR}" fetch --depth 1 origin "${MOLMOACT2_REVISION}"
   fi
+  GIT_LFS_SKIP_SMUDGE=1 git -C "${MOLMOACT2_DIR}" checkout --detach "${MOLMOACT2_REVISION}"
+
+  # Original-HF inference uses only the top-level source and pyproject. Training
+  # additionally needs LeRobot; unrelated hardware submodules contain a broken
+  # nested declaration at this pinned revision and must not be initialized.
+  if [[ "${MODE}" == "infer" ]]; then
+    return
+  fi
+  GIT_LFS_SKIP_SMUDGE=1 git -C "${MOLMOACT2_DIR}" submodule update --init lerobot
 
   if [[ ! -f "${LEROBOT_DIR}/pyproject.toml" ]]; then
     if [[ -d "${LEROBOT_DIR}" ]] && [[ -n "$(ls -A "${LEROBOT_DIR}" 2>/dev/null)" ]]; then
@@ -69,7 +81,27 @@ install_infer_env() {
   echo "=== 2. 推理环境 (molmoact2/.venv) ==="
   cd "${MOLMOACT2_DIR}"
   UV_LINK_MODE=copy uv sync
-  uv run python -c "import torch; print('cuda:', torch.cuda.is_available())"
+
+  # The pinned upstream lock uses cu121 PyTorch 2.5.1, which has no sm_120
+  # kernels. Keep upstream dependencies on older GPUs and install a tested
+  # cu128 pair when Blackwell is detected (or explicitly requested).
+  local compute_capability=""
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    compute_capability="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 || true)"
+  fi
+  if [[ "${MOLMOACT2_USE_CU128:-auto}" == "1" ]] || \
+     { [[ "${MOLMOACT2_USE_CU128:-auto}" == "auto" ]] && [[ "${compute_capability%%.*}" =~ ^[0-9]+$ ]] && (( ${compute_capability%%.*} >= 12 )); }; then
+    echo "Detected Blackwell compute capability ${compute_capability}; installing cu128 PyTorch."
+    UV_LINK_MODE=copy uv pip install \
+      --python "${MOLMOACT2_DIR}/.venv/bin/python" \
+      "torch==${MOLMOACT2_TORCH_VERSION:-2.10.0}" \
+      "torchvision==${MOLMOACT2_TORCHVISION_VERSION:-0.25.0}" \
+      --index-url "${MOLMOACT2_TORCH_INDEX:-https://download.pytorch.org/whl/cu128}" \
+      --index-strategy unsafe-best-match
+  fi
+  UV_LINK_MODE=copy uv pip install -e "${XPOLICYLAB_ROOT}"
+  "${MOLMOACT2_DIR}/.venv/bin/python" -c "import torch; x=torch.ones(1, device='cuda'); print('cuda tensor:', x, 'torch:', torch.__version__)"
+  "${MOLMOACT2_DIR}/.venv/bin/python" -c "import XPolicyLab; print('XPolicyLab original-HF inference adapter ok')"
   echo "推理环境就绪: ${MOLMOACT2_DIR}/.venv"
 }
 
@@ -82,7 +114,7 @@ install_train_env() {
   echo "训练环境就绪: ${LEROBOT_DIR}/.venv"
 }
 
-install_xpolicylab() {
+install_xpolicylab_train() {
   if [[ "${SKIP_XPOLICYLAB:-0}" == "1" ]]; then
     echo "跳过 XPolicyLab 安装 (SKIP_XPOLICYLAB=1)"
     return
@@ -104,9 +136,13 @@ install_xpolicylab() {
 verify_all() {
   echo ""
   echo "=== 安装完成 ==="
-  echo "XPolicyLab venv: ${LEROBOT_DIR}/.venv  (train + eval)"
-  echo "FastAPI venv:     ${MOLMOACT2_DIR}/.venv  (optional upstream server)"
-  echo "训练入口:   bash ${POLICY_DIR}/train.sh ..."
+  if [[ "${MODE}" == "train" || "${MODE}" == "all" ]]; then
+    echo "LeRobot venv:    ${LEROBOT_DIR}/.venv  (train + local eval)"
+    echo "训练入口:        bash ${POLICY_DIR}/train.sh ..."
+  fi
+  if [[ "${MODE}" == "infer" || "${MODE}" == "all" ]]; then
+    echo "Original-HF venv: ${MOLMOACT2_DIR}/.venv  (public YAM eval)"
+  fi
 }
 
 main() {
@@ -131,12 +167,12 @@ main() {
       ;;
     train)
       install_train_env
-      install_xpolicylab
+      install_xpolicylab_train
       ;;
     all)
       install_infer_env
       install_train_env
-      install_xpolicylab
+      install_xpolicylab_train
       ;;
   esac
 

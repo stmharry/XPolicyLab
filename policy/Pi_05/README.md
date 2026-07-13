@@ -41,6 +41,37 @@ bash install.sh
 source openpi/.venv/bin/activate
 ```
 
+### ARX X5 multitask public baseline
+
+The checkpoint alias `pi05_arx5_multitask_v1` pins the public repository at
+revision `880fa61406540d80b1c3b9824f12c19b903a233f` and requires checkpoint
+step `55000`. It uses absolute 14D joint actions, three ARX cameras, and the
+full 50-action horizon. Other local/path checkpoints retain their existing
+resolution and transformation behavior.
+
+```bash
+cd XPolicyLab/policy/Pi_05
+bash prepare_checkpoint.sh
+bash install.sh
+bash setup_eval_policy_server.sh \
+  RoboDojo fold_clothes pi05_arx5_multitask_v1 arx_x5 joint 0 \
+  0 uv 6000 0.0.0.0
+```
+
+The snapshot is stored under
+`${ROBODOJO_STORAGE_ROOT:-<robodojo>/.robodojo}/model_weights/Pi_05/pi05_arx5_multitask_v1/880fa61406540d80b1c3b9824f12c19b903a233f`.
+Preparation downloads only step 55000 and its assets, verifies every downloaded
+Hub object and the normalization-stat checksum, and fails rather than selecting
+another step. The model-card tar digest `7ee69681…82fe5b2f` is retained as
+provenance and reported for comparison, but is not a portable content check
+because tar ownership, modes, and timestamps change it. RoboDojo grippers use
+`[0,1]`; the adapter maps them to checkpoint
+units with `p=-0.01+0.054g` before normalization and reverses that mapping on
+predicted actions.
+
+Set `VERIFY_MODEL_CARD_TAR=1` to compute and report the slow, metadata-sensitive
+tar comparison in addition to the authoritative per-file Hub verification.
+
 ## Demo Data Processing
 
 What it does: prepares RoboDojo demonstration data for policy training. The output name should match the training run identity so `train.sh` can find it.

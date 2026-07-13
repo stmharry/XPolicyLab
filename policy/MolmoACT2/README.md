@@ -43,6 +43,41 @@ bash install.sh
 source molmoact2/lerobot/.venv/bin/activate  # or pass `uv` as <policy_env>
 ```
 
+### Bimanual YAM public baseline
+
+The checkpoint alias `molmoact2_bimanual_yam` is a fixed evaluation contract:
+
+- source revision `c2282820f9b188b60e66ea1636b3efd81c45cbb4`;
+- checkpoint revision `8dcbed66f2380e4393189c303ea72488eb9e63c2`;
+- 14D absolute state/action order `[left arm 6, left gripper, right arm 6, right gripper]`;
+- RGB cameras `cam_head`, `cam_left_wrist`, `cam_right_wrist`, mapped to checkpoint order `top`, `left`, `right`;
+- 10 continuous flow steps, a 30-action prediction, and the first 25 actions executed.
+
+Prepare the revision-pinned snapshot and original-HF inference environment:
+
+```bash
+cd XPolicyLab/policy/MolmoACT2
+bash prepare_checkpoint.sh
+bash install.sh infer
+```
+
+The snapshot is stored under
+`${ROBODOJO_STORAGE_ROOT:-<robodojo>/.robodojo}/model_weights/MolmoACT2/molmoact2_bimanual_yam/8dcbed66f2380e4393189c303ea72488eb9e63c2`.
+The public profile uses float32 and CUDA graphs as the faithful baseline. On a
+memory-constrained policy GPU, `dtype=bfloat16 enable_inference_cuda_graph=False`
+is a separately labelled fallback. The checkpoint does not declare a license;
+keep the weights internal and do not redistribute them.
+
+```bash
+bash setup_eval_policy_server.sh \
+  RoboDojo fold_clothes molmoact2_bimanual_yam bimanual_yam joint 0 \
+  0 uv 6000 0.0.0.0
+```
+
+Proxy settings are not injected by default. Set `DEPLOY_PROXY_URL`, or set
+`DEPLOY_PROXY_HOST` with optional `DEPLOY_PROXY_PORT`, when a deployment host
+requires one.
+
 ## Model Weights
 
 The base checkpoint is the fine-tuning starting point loaded by `train.sh`.
@@ -50,6 +85,7 @@ The base checkpoint is the fine-tuning starting point loaded by `train.sh`.
 | Checkpoint | Use |
 |---|---|
 | `allenai/MolmoAct2` | Base checkpoint for RoboDojo fine-tuning (Qwen2.5-7B backbone + flow-matching action expert, `add_action_expert=true`, `max_action_dim=32`). |
+| `allenai/MolmoAct2-BimanualYAM` | Revision-pinned original-HF baseline selected by `--ckpt molmoact2_bimanual_yam`. |
 
 `MOLMOACT2_CHECKPOINT_PATH` accepts a local directory or a Hub repo id and defaults to `allenai/MolmoAct2`. `train.sh` resolves it automatically: an existing local directory is used as-is, otherwise the checkpoint is downloaded from the Hub on first run (network required). No manual download step is needed.
 

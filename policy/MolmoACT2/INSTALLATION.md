@@ -1,23 +1,24 @@
 # MolmoACT2 Installation
 
-`install.sh` can create the required environments, but this document is kept because MolmoACT2 has two upstream Python environments and XPolicyLab should use only the LeRobot training/evaluation environment.
+`install.sh` creates separate environments for the original-HF public baseline and LeRobot training/local checkpoints.
 
 ## 1. Environment Overview
 
 | Environment | Directory | Purpose |
 | --- | --- | --- |
-| XPolicyLab training/evaluation | `molmoact2/lerobot/.venv` | `lerobot_train`, `eval.sh`, and adapter inference. |
-| Upstream FastAPI server | `molmoact2/.venv` | Optional official DROID/YAM server examples. |
+| Original-HF XPolicyLab inference | `molmoact2/.venv` | `molmoact2_bimanual_yam` and upstream server examples. |
+| LeRobot training/local evaluation | `molmoact2/lerobot/.venv` | `lerobot_train` and existing local checkpoints. |
 
-RoboDojo training and XPolicyLab evaluation both use `molmoact2/lerobot/.venv`. The upstream `molmoact2/` source is not tracked in git; run `bash install.sh` on first setup.
+The upstream source is pinned to `c2282820f9b188b60e66ea1636b3efd81c45cbb4` and is not tracked in XPolicyLab.
 
 ## 2. One-command Install
 
 ```bash
 cd XPolicyLab/policy/MolmoACT2
 bash install.sh          # LeRobot training/eval env + XPolicyLab
-bash install.sh all      # Above plus upstream FastAPI inference env
-bash install.sh infer    # Only upstream FastAPI inference env, not XPolicyLab eval
+bash install.sh all      # LeRobot plus original-HF inference environments
+bash install.sh infer    # Original-HF environment plus XPolicyLab
+bash prepare_checkpoint.sh  # Pinned Bimanual YAM checkpoint and checksum verification
 ```
 
 ## 3. Manual XPolicyLab Environment
@@ -33,13 +34,13 @@ pip install h5py opencv-python
 
 ## 4. Optional Upstream FastAPI Environment
 
-Only needed for official upstream DROID/YAM server workflows:
+Used by the public Bimanual YAM alias and official upstream server workflows:
 
 ```bash
 cd XPolicyLab/policy/MolmoACT2/molmoact2
 uv sync
 export HF_HUB_ENABLE_HF_TRANSFER=1
-uv run hf download allenai/MolmoAct2
+bash ../prepare_checkpoint.sh
 ```
 
 ## 5. Useful Variables
@@ -52,13 +53,18 @@ uv run hf download allenai/MolmoAct2
 | `MOLMOACT2_OUTPUT_ROOT` | Training output root. |
 | `MOLMOACT2_LOCAL_CACHE_ROOT` | Local HF datasets cache for multi-host training. |
 | `SKIP_XPOLICYLAB=1` | Skip XPolicyLab install during `install.sh`. |
+| `ROBODOJO_STORAGE_ROOT` | Overrides the `.robodojo` runtime storage root. |
+| `DEPLOY_PROXY_URL` | Opt-in HTTP/HTTPS proxy for policy server startup. |
+| `MOLMOACT2_USE_CU128` | `auto` installs the tested cu128 PyTorch pair on Blackwell; set `0` or `1` to override detection. |
+| `MOLMOACT2_TORCH_VERSION` | cu128 override version, default `2.10.0`. |
 
 ## 6. Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `get_policy_class('molmoact2')` fails | Use `molmoact2/lerobot/.venv`, not `molmoact2/.venv`. |
-| `import XPolicyLab` fails | Install XPolicyLab inside `lerobot/.venv`. |
-| transformers version conflict | Use `lerobot/.venv` for XPolicyLab eval/training; reserve `molmoact2/.venv` for FastAPI server only. |
+| `get_policy_class('molmoact2')` fails | Local LeRobot checkpoints require `molmoact2/lerobot/.venv`; the public alias uses `molmoact2/.venv`. |
+| `import XPolicyLab` fails | Re-run the matching `install.sh infer`, `train`, or `all` mode. |
+| transformers version conflict | Keep original-HF inference in `molmoact2/.venv` and LeRobot work in `lerobot/.venv`. |
 | `torchcodec` version conflict | Use `--index-strategy unsafe-best-match` during install. |
+| `no kernel image ... sm_120` | Re-run `MOLMOACT2_USE_CU128=1 bash install.sh infer`; do not run a later bare `uv sync`, which restores upstream cu121 PyTorch. |
 | Slow multi-host dataloading | Put `MOLMOACT2_LOCAL_CACHE_ROOT` on local disk. |

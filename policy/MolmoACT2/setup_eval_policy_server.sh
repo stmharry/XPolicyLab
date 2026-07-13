@@ -23,14 +23,24 @@ action_dim=$(bash "${UTILS_DIR}/get_action_dim.sh" "${BENCH_ROOT}" "${env_cfg_ty
 
 echo "[SERVER] policy=${policy_name}, task=${task_name}, policy_server_port=${policy_server_port}, action_dim=${action_dim}"
 
-# HuggingFace hub download may require proxy on deploy hosts (proxyup alias).
-_DEPLOY_PROXY_HOST="${DEPLOY_PROXY_HOST:-192.168.16.76}"
-_DEPLOY_PROXY_PORT="${DEPLOY_PROXY_PORT:-18000}"
-export http_proxy="http://${_DEPLOY_PROXY_HOST}:${_DEPLOY_PROXY_PORT}"
-export https_proxy="${http_proxy}"
-export HTTP_PROXY="${http_proxy}"
-export HTTPS_PROXY="${https_proxy}"
-echo "[SERVER] http_proxy=${http_proxy}"
+# Proxy configuration is opt-in. Existing standard proxy variables are kept.
+if [[ -n "${DEPLOY_PROXY_URL:-}" ]]; then
+    export http_proxy="${DEPLOY_PROXY_URL}"
+    export https_proxy="${DEPLOY_PROXY_URL}"
+    export HTTP_PROXY="${DEPLOY_PROXY_URL}"
+    export HTTPS_PROXY="${DEPLOY_PROXY_URL}"
+elif [[ -n "${DEPLOY_PROXY_HOST:-}" ]]; then
+    _DEPLOY_PROXY_PORT="${DEPLOY_PROXY_PORT:-18000}"
+    export http_proxy="http://${DEPLOY_PROXY_HOST}:${_DEPLOY_PROXY_PORT}"
+    export https_proxy="${http_proxy}"
+    export HTTP_PROXY="${http_proxy}"
+    export HTTPS_PROXY="${https_proxy}"
+fi
+if [[ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then
+    echo "[SERVER] using configured HTTPS proxy"
+else
+    echo "[SERVER] proxy disabled"
+fi
 
 CONDA_BASE="$(conda info --base)"
 source "${CONDA_BASE}/etc/profile.d/conda.sh"
@@ -46,7 +56,11 @@ import yaml
 from pathlib import Path
 script_dir = Path("${SCRIPT_DIR}")
 cfg = yaml.safe_load(open("${yaml_file}", encoding="utf-8"))
-path = Path(cfg["policy_uv_env_path"]).expanduser()
+path = Path(
+    "molmoact2"
+    if "${ckpt_name}" == "molmoact2_bimanual_yam"
+    else cfg["policy_uv_env_path"]
+).expanduser()
 if not path.is_absolute():
     path = (script_dir / path).resolve()
 print(path)

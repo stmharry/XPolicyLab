@@ -1,7 +1,78 @@
-import numpy as np
 import os
-import cv2
+from pathlib import Path
+
+import numpy as np
+
 from XPolicyLab.utils.load_file import load_json, load_yaml
+
+_XPOLICYLAB_ROOT = Path(__file__).resolve().parents[1]
+_LOCAL_ROBOT_INFO = Path(__file__).resolve().parent / "robot" / "_robot_info.json"
+
+
+def _find_robodojo_root() -> Path | None:
+    """Find the enclosing RoboDojo checkout without assuming a submodule layout.
+
+    ``ROBODOJO_ROOT`` is authoritative when set.  Walking the source path also
+    supports XPolicyLab linked worktrees, whose Git metadata cannot report the
+    superproject working tree.
+    """
+
+    configured = os.environ.get("ROBODOJO_ROOT")
+    if configured:
+        root = Path(configured).expanduser().resolve()
+        if not (root / "configs" / "environment").is_dir():
+            raise FileNotFoundError(f"ROBODOJO_ROOT does not contain configs/environment: {root}")
+        return root
+
+    for candidate in (_XPOLICYLAB_ROOT, *_XPOLICYLAB_ROOT.parents):
+        if (candidate / "configs" / "environment").is_dir() and (
+            candidate / "configs" / "robot" / "_robot_info.json"
+        ).is_file():
+            return candidate
+    return None
+
+
+def _official_env_paths(env_cfg_type: str) -> tuple[Path, Path]:
+    env_root = _XPOLICYLAB_ROOT / "env_cfg"
+    return env_root / f"{env_cfg_type}.yml", env_root / "robot" / "_robot_info.json"
+
+
+def _load_robot_action_dim_info(env_cfg_type: str) -> dict:
+    """Resolve robot dimensions through upstream, RoboDojo, then profile data.
+
+    The first two branches retain the official environment-to-robot mapping.
+    The final direct profile lookup is the shell-facing compatibility registry
+    used when an adapter is developed outside a complete RoboDojo checkout.
+    """
+
+    official_env, official_robots = _official_env_paths(env_cfg_type)
+    if official_env.is_file() and official_robots.is_file():
+        env_cfg = load_yaml(str(official_env))
+        robot_name = env_cfg["config"]["robot"]
+        return load_json(str(official_robots))[robot_name]
+
+    robodojo_root = _find_robodojo_root()
+    if robodojo_root is not None:
+        env_path = robodojo_root / "configs" / "environment" / f"{env_cfg_type}.yml"
+        robot_info_path = robodojo_root / "configs" / "robot" / "_robot_info.json"
+        if env_path.is_file() and robot_info_path.is_file():
+            env_cfg = load_yaml(str(env_path))
+            robot_name = env_cfg["config"]["robot"]
+            return load_json(str(robot_info_path))[robot_name]
+
+    if _LOCAL_ROBOT_INFO.is_file():
+        profiles = load_json(str(_LOCAL_ROBOT_INFO))
+        if env_cfg_type in profiles:
+            return profiles[env_cfg_type]
+
+    checked = [str(official_env)]
+    if robodojo_root is not None:
+        checked.append(str(robodojo_root / "configs" / "environment" / f"{env_cfg_type}.yml"))
+    checked.append(f"{_LOCAL_ROBOT_INFO}::{env_cfg_type}")
+    raise FileNotFoundError(
+        f"Could not resolve robot metadata for environment {env_cfg_type!r}. Checked: {', '.join(checked)}"
+    )
+
 
 def _validate_config(action_type: str, robot_action_dim_info: dict, source_type: str):
     """
@@ -18,16 +89,10 @@ def _validate_config(action_type: str, robot_action_dim_info: dict, source_type:
         arm_dims, ee_dims, num_arms
     """
     if action_type not in {"joint", "ee"}:
-        raise ValueError(
-            f"Unsupported action_type: {action_type!r}. "
-            "Supported values are 'joint' and 'ee'."
-        )
+        raise ValueError(f"Unsupported action_type: {action_type!r}. Supported values are 'joint' and 'ee'.")
 
     if source_type not in {"obs", "dataset"}:
-        raise ValueError(
-            f"Unsupported source_type: {source_type!r}. "
-            "Supported values are 'obs' and 'dataset'."
-        )
+        raise ValueError(f"Unsupported source_type: {source_type!r}. Supported values are 'obs' and 'dataset'.")
 
     if "arm_dim" not in robot_action_dim_info or "ee_dim" not in robot_action_dim_info:
         raise KeyError("robot_action_dim_info must contain both 'arm_dim' and 'ee_dim'.")
@@ -39,15 +104,10 @@ def _validate_config(action_type: str, robot_action_dim_info: dict, source_type:
         raise TypeError("'arm_dim' and 'ee_dim' must be list or tuple.")
 
     if len(arm_dims) != len(ee_dims):
-        raise ValueError(
-            f"'arm_dim' and 'ee_dim' must have the same length, "
-            f"got {len(arm_dims)} and {len(ee_dims)}."
-        )
+        raise ValueError(f"'arm_dim' and 'ee_dim' must have the same length, got {len(arm_dims)} and {len(ee_dims)}.")
 
     if len(arm_dims) not in {1, 2}:
-        raise ValueError(
-            f"Only single-arm or dual-arm robots are supported, got {len(arm_dims)} arms."
-        )
+        raise ValueError(f"Only single-arm or dual-arm robots are supported, got {len(arm_dims)} arms.")
 
     if any(d <= 0 for d in arm_dims) or any(d <= 0 for d in ee_dims):
         raise ValueError("All dimensions in 'arm_dim' and 'ee_dim' must be positive.")
@@ -109,12 +169,10 @@ def _ensure_valid_state_array(name: str, value, expected_last_dim: int) -> np.nd
     arr = np.asarray(value)
 
     if arr.shape[-1] != expected_last_dim:
-        raise ValueError(
-            f"State field '{name}' last dim mismatch: "
-            f"expected {expected_last_dim}, got {arr.shape[-1]}."
-        )
+        raise ValueError(f"State field '{name}' last dim mismatch: expected {expected_last_dim}, got {arr.shape[-1]}.")
 
     return arr
+
 
 def pack_robot_state(
     obs: dict,
@@ -143,9 +201,7 @@ def pack_robot_state(
     parts = []
     expected_prefix_shape = None
 
-    for i, (arm_key, ee_key, arm_dim, ee_dim) in enumerate(
-        zip(arm_keys, ee_keys, arm_dims, ee_dims)
-    ):
+    for i, (arm_key, ee_key, arm_dim, ee_dim) in enumerate(zip(arm_keys, ee_keys, arm_dims, ee_dims)):
         if arm_key not in state_dict:
             raise KeyError(f"Missing key '{arm_key}' in obs['state'] for arm {i}.")
         if ee_key not in state_dict:
@@ -203,22 +259,16 @@ def unpack_robot_state(
     expected_dim = sum(arm_dims) + sum(ee_dims)
 
     if packed.shape[-1] != expected_dim:
-        raise ValueError(
-            f"packed_state last dim mismatch: expected {expected_dim}, got {packed.shape[-1]}."
-        )
+        raise ValueError(f"packed_state last dim mismatch: expected {expected_dim}, got {packed.shape[-1]}.")
 
     if source_type == "obs":
-        assert packed.ndim <= 2, (
-            f"When source_type='obs', packed_state.ndim must be <= 2, got {packed.ndim}."
-        )
+        assert packed.ndim <= 2, f"When source_type='obs', packed_state.ndim must be <= 2, got {packed.ndim}."
 
         def _unpack_single_action(single_action: np.ndarray) -> dict:
             result = {}
             offset = 0
 
-            for arm_key, ee_key, arm_dim, ee_dim in zip(
-                arm_keys, ee_keys, arm_dims, ee_dims
-            ):
+            for arm_key, ee_key, arm_dim, ee_dim in zip(arm_keys, ee_keys, arm_dims, ee_dims):
                 result[arm_key] = single_action[offset : offset + arm_dim]
                 offset += arm_dim
 
@@ -244,32 +294,38 @@ def unpack_robot_state(
 
     return result
 
-def get_robot_action_dim_info(env_cfg_type):
-    env_cfg = load_yaml(os.path.join(os.path.dirname(__file__), "../../env_cfg", f"{env_cfg_type}.yml"))
-    robot_name = env_cfg['config']['robot']
-    robot_action_dim_info = load_json(os.path.join(os.path.dirname(__file__), "../../env_cfg/robot", "_robot_info.json"))[robot_name]
 
-    return robot_action_dim_info
+def get_robot_action_dim_info(env_cfg_type):
+    return _load_robot_action_dim_info(str(env_cfg_type))
+
 
 def get_batch_size(env_cfg_type):
-    env_cfg = load_yaml(os.path.join(os.path.dirname(__file__), "../../env_cfg", f"{env_cfg_type}.yml"))
-    sim_cfg = env_cfg['config']['sim']
-    sim_info = load_yaml(os.path.join(os.path.dirname(__file__), "../../env_cfg/sim", f"{sim_cfg}.yml"))
+    official_env, _ = _official_env_paths(str(env_cfg_type))
+    if official_env.is_file():
+        env_cfg = load_yaml(str(official_env))
+        sim_cfg = env_cfg["config"]["sim"]
+        sim_info = load_yaml(str(_XPOLICYLAB_ROOT / "env_cfg" / "sim" / f"{sim_cfg}.yml"))
+        return sim_info["scene"]["num_envs"]
 
-    return sim_info['scene']['num_envs']
+    robodojo_root = _find_robodojo_root()
+    if robodojo_root is None:
+        raise FileNotFoundError(f"Could not locate RoboDojo for environment {env_cfg_type!r}")
+    env_cfg = load_yaml(str(robodojo_root / "configs" / "environment" / f"{env_cfg_type}.yml"))
+    sim_cfg = env_cfg["config"]["sim"]
+    sim_info = load_yaml(str(robodojo_root / "configs" / "sim" / f"{sim_cfg}.yml"))
+    return sim_info["scene"]["num_envs"]
+
 
 def get_action_dim(env_cfg_type):
-    env_cfg = load_yaml(os.path.join(os.path.dirname(__file__), "../../env_cfg", f"{env_cfg_type}.yml"))
-    robot_name = env_cfg['config']['robot']
-    robot_action_dim_info = load_json(os.path.join(os.path.dirname(__file__), "../../env_cfg/robot", "_robot_info.json"))[robot_name]
+    robot_action_dim_info = get_robot_action_dim_info(env_cfg_type)
     return sum(robot_action_dim_info["arm_dim"]) + sum(robot_action_dim_info["ee_dim"])
 
+
 def decode_image_bit(image_bits):
+    import cv2
+
     def _decode(single_image_bit):
-        return cv2.imdecode(
-            np.frombuffer(single_image_bit, np.uint8),
-            cv2.IMREAD_COLOR
-        )
+        return cv2.imdecode(np.frombuffer(single_image_bit, np.uint8), cv2.IMREAD_COLOR)
 
     if isinstance(image_bits, np.ndarray) and image_bits.ndim == 1:
         return _decode(image_bits)

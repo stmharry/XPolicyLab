@@ -1,7 +1,8 @@
-import h5py
 import yaml
 
+
 def load_hdf5(path: str) -> dict:
+    import h5py
 
     def _read(obj):
         # Dataset -> numpy / scalar / bytes->str
@@ -29,13 +30,16 @@ def load_hdf5(path: str) -> dict:
 
         return data
 
+
 def load_yaml(path: str) -> dict:
-    with open(path, "r") as f:
+    with open(path) as f:
         data = yaml.safe_load(f)
     return data
 
+
 def load_json(path: str) -> dict:
     import json
-    with open(path, "r") as f:
+
+    with open(path) as f:
         data = json.load(f)
     return data

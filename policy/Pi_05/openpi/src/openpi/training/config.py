@@ -570,6 +570,37 @@ class TrainConfig:
 # Use `get_config` if you need to get a config by name in your code.
 _CONFIGS = [
     TrainConfig(
+        name="pi05_arx5_multitask_v1",
+        model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
+        data=LeRobotAlohaDataConfig(
+            repo_id="pi05_arx5_multitask_v1",
+            use_delta_joint_actions=False,
+            adapt_to_pi=False,
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "cam_high": "observation.images.cam_high",
+                                "cam_left_wrist": "observation.images.cam_left_wrist",
+                                "cam_right_wrist": "observation.images.cam_right_wrist",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "prompt",
+                        }
+                    )
+                ]
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        policy_metadata={
+            "checkpoint_profile": "pi05_arx5_multitask_v1",
+            "action_type": "absolute_joint",
+            "action_horizon": 50,
+        },
+    ),
+    TrainConfig(
         name="pi05_base_aloha_full_sim_arx-x5_seed_0",
         model=pi0_config.Pi0Config(pi05=True),
         data=LeRobotAlohaDataConfig(

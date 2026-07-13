@@ -3,17 +3,22 @@
 """
 #!/usr/bin/python3
 """
+
 from pathlib import Path
-import os
-import sys
 from typing import Any
 
-import cv2
 import numpy as np
-
 from openpi.policies import policy_config as _policy_config
 from openpi.shared import normalize as _normalize
 from openpi.training import config as _config
+from XPolicyLab.policy.Pi_05.contract import (
+    PROFILE_NAME,
+    apply_checkpoint_profile,
+    checkpoint_to_robodojo,
+    robodojo_to_checkpoint,
+    validate_profile_checkpoint,
+    validate_robot_contract,
+)
 
 from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.utils.checkpoint_resolver import candidate_checkpoint_roots
@@ -23,7 +28,6 @@ from XPolicyLab.utils.process_data import (
     pack_robot_state,
     unpack_robot_state,
 )
-
 
 _POLICY_DIR = Path(__file__).resolve().parent
 _CHECKPOINTS_DIR = _POLICY_DIR / "checkpoints"
@@ -49,6 +53,9 @@ def _resolve_pi05_model_root(model_cfg: dict[str, Any]) -> Path:
     if not candidates:
         raise ValueError("ckpt_name or model_path is required for Pi_05.")
     checkpoint_root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
+    if model_cfg.get("checkpoint_profile") == PROFILE_NAME:
+        validate_profile_checkpoint(checkpoint_root)
+        return checkpoint_root
     if not checkpoint_root.is_dir():
         return checkpoint_root
 
@@ -90,15 +97,27 @@ def _resolve_pi05_model_root(model_cfg: dict[str, Any]) -> Path:
 
 class Model(ModelTemplate):
     def __init__(self, model_cfg: dict[str, Any]):
-        self.task_name = model_cfg["task_name"]
-        self.action_type = model_cfg.get("action_type", "joint")
+        self.model_cfg = apply_checkpoint_profile(model_cfg)
+        self.task_name = self.model_cfg["task_name"]
+        self.action_type = self.model_cfg.get("action_type", "joint")
         self.robot_action_dim_info = (
-            get_robot_action_dim_info(model_cfg["env_cfg_type"]) if model_cfg.get("env_cfg_type") is not None else None
+            get_robot_action_dim_info(self.model_cfg["env_cfg_type"])
+            if self.model_cfg.get("env_cfg_type") is not None
+            else None
         )
+        self.is_public_arx_profile = self.model_cfg.get("checkpoint_profile") == PROFILE_NAME
+        if self.is_public_arx_profile:
+            if self.action_type != "joint":
+                raise ValueError(f"{PROFILE_NAME} requires action_type='joint'.")
+            if self.model_cfg.get("env_cfg_type") != "arx_x5":
+                raise ValueError(f"{PROFILE_NAME} requires env_cfg_type='arx_x5'.")
+            if self.robot_action_dim_info is None:
+                raise ValueError(f"{PROFILE_NAME} requires env_cfg_type='arx_x5'.")
+            validate_robot_contract(self.robot_action_dim_info)
         self.observation_window: dict[str, Any] | None = None
         self._latest_env_idx_list: list[int] = [0]
 
-        self.policy = self.get_model(model_cfg=model_cfg)
+        self.policy = self.get_model(model_cfg=self.model_cfg)
         self.model = self.policy
 
     def get_model(self, model_cfg: dict[str, Any]):
@@ -108,7 +127,9 @@ class Model(ModelTemplate):
 
         config = _config.get_config(train_config_name)
         norm_stats = None
-        if repo_id is not None:
+        if model_cfg.get("norm_stats_path") is not None:
+            norm_stats = _normalize.load(Path(model_cfg["norm_stats_path"]))
+        elif repo_id is not None:
             norm_stats = _normalize.load(model_root / "assets" / str(repo_id))
 
         return _policy_config.create_trained_policy(config, str(model_root), norm_stats=norm_stats)
@@ -118,9 +139,10 @@ class Model(ModelTemplate):
 
     def update_obs_batch(self, obs_list):
         self._latest_env_idx_list = [obs.get("env_idx", index) for index, obs in enumerate(obs_list)]
-        encoded_obs_list = [
-            encode_obs(obs, self.action_type, self.robot_action_dim_info) for obs in obs_list
-        ]
+        encoded_obs_list = [encode_obs(obs, self.action_type, self.robot_action_dim_info) for obs in obs_list]
+        if self.is_public_arx_profile:
+            for encoded_obs in encoded_obs_list:
+                encoded_obs["state"] = robodojo_to_checkpoint(encoded_obs["state"])
         self.observation_window = stack_obs(encoded_obs_list)
 
     def get_action(self, **kwargs):
@@ -137,7 +159,9 @@ class Model(ModelTemplate):
 
         for batch_index, _ in enumerate(env_idx_list):
             single_observation = slice_stacked_obs(self.observation_window, batch_index)
-            actions = self.policy.infer(single_observation, **kwargs)["actions"]
+            actions = np.asarray(self.policy.infer(single_observation, **kwargs)["actions"], dtype=np.float32)
+            if self.is_public_arx_profile:
+                actions = checkpoint_to_robodojo(actions)
             if self.robot_action_dim_info is None:
                 action_list.append(actions)
             else:

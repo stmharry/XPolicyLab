@@ -7,6 +7,10 @@
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]
     },
+    "bimanual_yam": {
+        "arm_dim": [6, 6],
+        "ee_dim": [1, 1]
+    },
     "piper_x": {
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]
