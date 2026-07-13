@@ -42,45 +42,48 @@ else
     echo "[SERVER] proxy disabled"
 fi
 
-CONDA_BASE="$(conda info --base)"
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
-YAML_PYTHON="${CONDA_BASE}/bin/python"
 if type deactivate >/dev/null 2>&1 && [[ -n "${VIRTUAL_ENV:-}" ]]; then
     deactivate || true
 fi
 unset VIRTUAL_ENV
-if [[ "${policy_conda_env}" == "uv" || "${policy_conda_env}" == */* ]]; then
+if [[ "${ckpt_name}" == "molmoact2_bimanual_yam" && "${policy_conda_env}" == "molmoact2" ]]; then
+    policy_uv_env_path="${SCRIPT_DIR}/molmoact2"
+elif [[ "${policy_conda_env}" == "uv" || "${policy_conda_env}" == */* ]]; then
     if [[ "${policy_conda_env}" == "uv" ]]; then
-        policy_uv_env_path=$("${YAML_PYTHON}" - <<PYENV
-import yaml
-from pathlib import Path
-script_dir = Path("${SCRIPT_DIR}")
-cfg = yaml.safe_load(open("${yaml_file}", encoding="utf-8"))
-path = Path(
-    "molmoact2"
-    if "${ckpt_name}" == "molmoact2_bimanual_yam"
-    else cfg["policy_uv_env_path"]
-).expanduser()
-if not path.is_absolute():
-    path = (script_dir / path).resolve()
-print(path)
-PYENV
-)
+        policy_uv_env_path=$(sed -nE 's/^policy_uv_env_path:[[:space:]]*([^[:space:]]+)[[:space:]]*$/\1/p' "${yaml_file}" | head -n 1)
+        policy_uv_env_path="${policy_uv_env_path%\"}"
+        policy_uv_env_path="${policy_uv_env_path#\"}"
+        policy_uv_env_path="${policy_uv_env_path%\'}"
+        policy_uv_env_path="${policy_uv_env_path#\'}"
+        if [[ -z "${policy_uv_env_path}" ]]; then
+            echo "[SERVER][ERROR] policy_uv_env_path is missing from ${yaml_file}" >&2
+            exit 1
+        fi
     else
-        policy_uv_env_path=$("${YAML_PYTHON}" - <<PYENV
-from pathlib import Path
-script_dir = Path("${SCRIPT_DIR}")
-path = Path("${policy_conda_env}").expanduser()
-if not path.is_absolute():
-    path = (script_dir / path).resolve()
-print(path)
-PYENV
-)
+        policy_uv_env_path="${policy_conda_env}"
+    fi
+    policy_uv_env_path="${policy_uv_env_path/#\~/${HOME}}"
+    if [[ "${policy_uv_env_path}" != /* ]]; then
+        policy_uv_env_path="$(realpath -m "${SCRIPT_DIR}/${policy_uv_env_path}")"
+    fi
+fi
+
+if [[ -n "${policy_uv_env_path:-}" ]]; then
+    if [[ ! -f "${policy_uv_env_path}/.venv/bin/activate" ]]; then
+        echo "[SERVER][ERROR] uv venv not found: ${policy_uv_env_path}/.venv" >&2
+        echo "[SERVER][ERROR] Run: bash ${SCRIPT_DIR}/install.sh infer" >&2
+        exit 1
     fi
     echo "[SERVER] Activating uv environment: ${policy_uv_env_path}/.venv"
     source "${policy_uv_env_path}/.venv/bin/activate"
     PYTHON_BIN="$(command -v python)"
 else
+    if ! command -v conda >/dev/null 2>&1; then
+        echo "[SERVER][ERROR] conda is required for environment ${policy_conda_env}" >&2
+        exit 1
+    fi
+    CONDA_BASE="$(conda info --base)"
+    source "${CONDA_BASE}/etc/profile.d/conda.sh"
     echo "[SERVER] Activating Conda environment: ${policy_conda_env}"
     conda activate "${policy_conda_env}"
     PYTHON_BIN="${CONDA_PREFIX}/bin/python"

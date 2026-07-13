@@ -25,32 +25,24 @@ action_dim=$(bash "${UTILS_DIR}/get_action_dim.sh" "${BENCH_ROOT}" "${env_cfg_ty
 
 echo "[SERVER] policy=${policy_name}, task=${task_name}, port=${policy_server_port}, action_dim=${action_dim}"
 
-CONDA_BASE="$(conda info --base)"
-source "${CONDA_BASE}/etc/profile.d/conda.sh"
-YAML_PYTHON="${CONDA_BASE}/bin/python"
-
 resolve_uv_env() {
     local raw_path=$1
     if [[ "${raw_path}" == "uv" ]]; then
-        "${YAML_PYTHON}" - <<PYENV
-import yaml
-from pathlib import Path
-script_dir = Path("${SCRIPT_DIR}")
-cfg = yaml.safe_load(open("${yaml_file}", encoding="utf-8"))
-path = Path(cfg["policy_uv_env_path"]).expanduser()
-if not path.is_absolute():
-    path = (script_dir / path).resolve()
-print(path)
-PYENV
+        raw_path=$(sed -nE 's/^policy_uv_env_path:[[:space:]]*([^[:space:]]+)[[:space:]]*$/\1/p' "${yaml_file}" | head -n 1)
+        raw_path="${raw_path%\"}"
+        raw_path="${raw_path#\"}"
+        raw_path="${raw_path%\'}"
+        raw_path="${raw_path#\'}"
+        if [[ -z "${raw_path}" ]]; then
+            echo "[SERVER][ERROR] policy_uv_env_path is missing from ${yaml_file}" >&2
+            return 1
+        fi
+    fi
+    raw_path="${raw_path/#\~/${HOME}}"
+    if [[ "${raw_path}" == /* ]]; then
+        printf '%s\n' "${raw_path}"
     else
-        "${YAML_PYTHON}" - <<PYENV
-from pathlib import Path
-script_dir = Path("${SCRIPT_DIR}")
-path = Path("${raw_path}").expanduser()
-if not path.is_absolute():
-    path = (script_dir / path).resolve()
-print(path)
-PYENV
+        realpath -m "${SCRIPT_DIR}/${raw_path}"
     fi
 }
 
