@@ -68,17 +68,19 @@ hf download \
     --include "assets/**" \
     --local-dir "${DESTINATION}"
 
-echo "Model-card params tar provenance: ${PARAMS_TAR_SHA256}"
-if [[ "${VERIFY_MODEL_CARD_TAR:-0}" == "1" ]]; then
-    PARAMS_SHA256="$({ tar cf - -C "${DESTINATION}/checkpoints/${CHECKPOINT_STEP}" params; } | sha256sum | awk '{print $1}')"
-    if [[ "${PARAMS_SHA256}" != "${PARAMS_TAR_SHA256}" ]]; then
-        echo "WARNING: metadata-sensitive params tar digest differs from model-card provenance." >&2
-        echo "  model card: ${PARAMS_TAR_SHA256}" >&2
-        echo "  local tar:  ${PARAMS_SHA256}" >&2
-        echo "Hub object verification below is authoritative for downloaded files." >&2
-    fi
+# The model card prescribes `tar cf - ... | sha256sum`. A plain tar archive
+# includes local uid/gid, modes, mtimes, and traversal metadata, so this digest
+# is reported as provenance but cannot be a reproducible integrity gate after
+# `hf download`. Pinned per-file Hub verification below is the enforced gate.
+PARAMS_SHA256="$({ tar cf - -C "${DESTINATION}/checkpoints/${CHECKPOINT_STEP}" params; } | sha256sum | awk '{print $1}')"
+echo "Model-card params tar digest: ${PARAMS_TAR_SHA256}"
+echo "Local plain-tar params digest: ${PARAMS_SHA256}"
+if [[ "${PARAMS_SHA256}" == "${PARAMS_TAR_SHA256}" ]]; then
+    echo "Plain-tar params digest matches the model-card provenance."
 else
-    echo "Skipping metadata-sensitive tar comparison; set VERIFY_MODEL_CARD_TAR=1 to report it."
+    echo "WARNING: metadata-sensitive params tar digest differs from model-card provenance." >&2
+    echo "This is non-fatal because plain tar hashes local uid/gid/mode/mtime metadata." >&2
+    echo "Pinned Hub object verification below is authoritative for downloaded files." >&2
 fi
 printf '%s  %s\n' "${NORM_SHA256}" "${DESTINATION}/assets/norm_stats.json" | sha256sum --check --strict
 hf cache verify \

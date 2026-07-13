@@ -64,6 +64,29 @@ class Pi05ArxContractTest(unittest.TestCase):
         self.assertLess(profile.index('"cam_high"'), profile.index('"cam_left_wrist"'))
         self.assertLess(profile.index('"cam_left_wrist"'), profile.index('"cam_right_wrist"'))
 
+    def test_checkpoint_preparation_separates_provenance_from_integrity_gates(self):
+        script_path = Path(__file__).parent / "prepare_checkpoint.sh"
+        source = script_path.read_text()
+
+        self.assertIn(
+            'PARAMS_TAR_SHA256="7ee69681991cdc5e04b4759d3bf93bca5dac6bc98639ec7b00202d2f82fe5b2f"',
+            source,
+        )
+        self.assertIn('tar cf - -C "${DESTINATION}/checkpoints/${CHECKPOINT_STEP}" params', source)
+        self.assertNotIn("VERIFY_MODEL_CARD_TAR", source)
+        self.assertIn("hashes local uid/gid/mode/mtime metadata", source)
+
+        comparison = source[
+            source.index('if [[ "${PARAMS_SHA256}" == "${PARAMS_TAR_SHA256}" ]]') :
+            source.index("printf '%s  %s\\n'")
+        ]
+        self.assertNotIn("exit", comparison)
+
+        self.assertIn("sha256sum --check --strict", source)
+        self.assertIn("hf cache verify", source)
+        self.assertIn('--revision "${REVISION}"', source)
+        self.assertNotIn("--fail-on-extra-files", source)
+
 
 if __name__ == "__main__":
     unittest.main()

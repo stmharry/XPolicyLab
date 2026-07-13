@@ -62,15 +62,16 @@ The snapshot is stored under
 `${ROBODOJO_STORAGE_ROOT:-<robodojo>/.robodojo}/model_weights/Pi_05/pi05_arx5_multitask_v1/880fa61406540d80b1c3b9824f12c19b903a233f`.
 Preparation downloads only step 55000 and its assets, verifies every downloaded
 Hub object and the normalization-stat checksum, and fails rather than selecting
-another step. The model-card tar digest `7ee69681…82fe5b2f` is retained as
-provenance and reported for comparison, but is not a portable content check
-because tar ownership, modes, and timestamps change it. RoboDojo grippers use
-`[0,1]`; the adapter maps them to checkpoint
+another step. It always computes and compares the model card's declared plain-
+tar digest
+`7ee69681991cdc5e04b4759d3bf93bca5dac6bc98639ec7b00202d2f82fe5b2f`,
+but a mismatch is informational: `tar cf -` hashes local uid/gid, modes,
+mtimes, and traversal metadata in addition to file bytes, so the result is not
+reproducible after `hf download`. Integrity acceptance is therefore enforced by
+the pinned-revision, per-file Hub verification and the exact normalization hash;
+neither gate is optional. RoboDojo grippers use `[0,1]`; the adapter maps them to checkpoint
 units with `p=-0.01+0.054g` before normalization and reverses that mapping on
 predicted actions.
-
-Set `VERIFY_MODEL_CARD_TAR=1` to compute and report the slow, metadata-sensitive
-tar comparison in addition to the authoritative per-file Hub verification.
 
 ## Demo Data Processing
 
