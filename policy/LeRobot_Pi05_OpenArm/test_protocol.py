@@ -37,10 +37,13 @@ def test_relative_target_and_absolute_joint_limits():
         clamp_relative_target(np.full(16, np.nan), current)
 
 
-def test_xpolicylab_registry_exposes_16d_openarm_profile():
+@pytest.mark.parametrize("profile", ["openarm_lerobot", "openarm_wowrobo_v1_1", "openarm_anvil_v2"])
+def test_xpolicylab_registry_exposes_current_16d_openarm_profiles(profile):
     root = Path(__file__).resolve().parents[2]
-    info = json.loads((root / "utils/robot/_robot_info.json").read_text())["openarm_cloth_folding"]
+    registry = json.loads((root / "utils/robot/_robot_info.json").read_text())
+    info = registry[profile]
     assert sum(info["arm_dim"]) + sum(info["ee_dim"]) == 16
+    assert "openarm_cloth_folding" not in registry
 
 
 def test_action_queue_exposes_original_and_processed_leftovers_separately():

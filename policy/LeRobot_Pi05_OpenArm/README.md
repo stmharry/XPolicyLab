@@ -13,7 +13,7 @@ bash download_checkpoint.sh lerobot-pi05
 conda run -n lerobot-pi05 python smoke_test.py
 ```
 
-Run from the RoboDojo parent checkout with `--env-cfg openarm_cloth_folding`,
+Run from the RoboDojo parent checkout with `--env-cfg openarm_lerobot`,
 `--action-type joint`, and the checkpoint label `folding_final`. This canonical
 environment uses the available DYNA base camera while preserving the
 checkpoint's observation and action contract.

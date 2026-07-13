@@ -4,7 +4,7 @@ host: localhost
 port: 6000
 bench_name: null
 task_name: null
-env_cfg_type: openarm_cloth_folding
+env_cfg_type: openarm_lerobot
 seed: 0
 eval_batch: false
 action_type: joint

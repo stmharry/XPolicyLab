@@ -11,7 +11,15 @@
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]
     },
-    "openarm_cloth_folding": {
+    "openarm_lerobot": {
+        "arm_dim": [7, 7],
+        "ee_dim": [1, 1]
+    },
+    "openarm_wowrobo_v1_1": {
+        "arm_dim": [7, 7],
+        "ee_dim": [1, 1]
+    },
+    "openarm_anvil_v2": {
         "arm_dim": [7, 7],
         "ee_dim": [1, 1]
     }
