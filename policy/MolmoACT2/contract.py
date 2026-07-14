@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+
 from XPolicyLab.utils.robodojo_paths import model_weight_root
 
 PROFILE_NAME = "molmoact2_bimanual_yam"
@@ -20,6 +21,7 @@ FLOW_STEPS = 10
 CAMERA_KEYS = ("cam_high", "cam_left_wrist", "cam_right_wrist")
 CAMERA_SHAPE = (3, 360, 640)
 GRIPPER_INDICES = (6, 13)
+YAM_JOINT_5_INDICES = (4, 11)
 
 
 def checkpoint_path() -> str:
@@ -51,6 +53,37 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
         }
     )
     return cfg
+
+
+def uses_public_yam_joint_sign_bridge(model_cfg: dict[str, Any]) -> bool:
+    """Return whether the pinned original-HF YAM boundary needs sign bridging."""
+
+    return (
+        model_cfg.get("ckpt_name") == PROFILE_NAME
+        and model_cfg.get("checkpoint_backend") == "original_hf"
+    )
+
+
+def _negate_yam_joint_5(values: Any, *, value_name: str) -> np.ndarray:
+    """Return a copy with each arm's ``dof_joint5`` sign negated."""
+
+    result = np.array(values, copy=True)
+    if result.ndim < 1 or result.shape[-1] != STATE_DIM:
+        raise ValueError(f"{value_name} must end in dimension {STATE_DIM}, got shape {result.shape}.")
+    result[..., list(YAM_JOINT_5_INDICES)] = -result[..., list(YAM_JOINT_5_INDICES)]
+    return result
+
+
+def simulator_state_to_checkpoint(state: Any) -> np.ndarray:
+    """Map RoboDojo YAM state into the public checkpoint's joint convention."""
+
+    return _negate_yam_joint_5(state, value_name="YAM simulator state")
+
+
+def checkpoint_actions_to_simulator(actions: Any) -> np.ndarray:
+    """Map public-checkpoint YAM actions into RoboDojo's joint convention."""
+
+    return _negate_yam_joint_5(actions, value_name="YAM checkpoint actions")
 
 
 def validate_robot_contract(robot_action_dim_info: dict[str, Any]) -> None:

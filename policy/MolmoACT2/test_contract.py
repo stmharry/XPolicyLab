@@ -55,6 +55,60 @@ class MolmoYamContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "non-finite"):
             contract.validate_and_select_actions(actions)
 
+    def test_public_yam_joint_sign_bridge_is_profile_isolated(self):
+        public_cfg = contract.apply_checkpoint_profile({"ckpt_name": contract.PROFILE_NAME})
+        self.assertTrue(contract.uses_public_yam_joint_sign_bridge(public_cfg))
+        self.assertFalse(
+            contract.uses_public_yam_joint_sign_bridge(
+                {
+                    "ckpt_name": "/models/local-original-hf",
+                    "checkpoint_backend": "original_hf",
+                }
+            )
+        )
+        self.assertFalse(
+            contract.uses_public_yam_joint_sign_bridge(
+                {
+                    "ckpt_name": "local-lerobot",
+                    "checkpoint_backend": "lerobot",
+                }
+            )
+        )
+
+    def test_yam_joint_sign_transforms_are_pure_shape_preserving_involutions(self):
+        state = np.arange(14, dtype=np.float32)
+        original_state = state.copy()
+        checkpoint_state = contract.simulator_state_to_checkpoint(state)
+        self.assertEqual(checkpoint_state.shape, state.shape)
+        self.assertEqual(checkpoint_state.dtype, state.dtype)
+        np.testing.assert_array_equal(state, original_state)
+        np.testing.assert_array_equal(
+            checkpoint_state,
+            original_state * np.array([1, 1, 1, 1, -1, 1, 1, 1, 1, 1, 1, -1, 1, 1]),
+        )
+        np.testing.assert_array_equal(contract.simulator_state_to_checkpoint(checkpoint_state), state)
+
+        actions = np.stack((state, state + 14), axis=0)
+        original_actions = actions.copy()
+        simulator_actions = contract.checkpoint_actions_to_simulator(actions)
+        self.assertEqual(simulator_actions.shape, actions.shape)
+        self.assertEqual(simulator_actions.dtype, actions.dtype)
+        np.testing.assert_array_equal(actions, original_actions)
+        np.testing.assert_array_equal(
+            contract.checkpoint_actions_to_simulator(simulator_actions),
+            actions,
+        )
+        np.testing.assert_array_equal(
+            simulator_actions[:, contract.GRIPPER_INDICES],
+            actions[:, contract.GRIPPER_INDICES],
+        )
+
+    def test_yam_joint_sign_transforms_reject_non_contract_shapes(self):
+        with self.assertRaisesRegex(ValueError, "end in dimension 14"):
+            contract.simulator_state_to_checkpoint(np.zeros(13, dtype=np.float32))
+        with self.assertRaisesRegex(ValueError, "end in dimension 14"):
+            contract.checkpoint_actions_to_simulator(np.zeros((30, 13), dtype=np.float32))
+
 
 if __name__ == "__main__":
     unittest.main()

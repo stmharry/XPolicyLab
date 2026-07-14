@@ -50,6 +50,9 @@ The checkpoint alias `molmoact2_bimanual_yam` is a fixed evaluation contract:
 - source revision `c2282820f9b188b60e66ea1636b3efd81c45cbb4`;
 - checkpoint revision `8dcbed66f2380e4393189c303ea72488eb9e63c2`;
 - 14D absolute state/action order `[left arm 6, left gripper, right arm 6, right gripper]`;
+- RoboDojo `dof_joint5` signs are negated at flat indices `4` and `11` when
+  entering and leaving the original-HF checkpoint, matching the checkpoint's
+  YAM convention without changing the simulator convention;
 - RGB cameras `cam_head`, `cam_left_wrist`, `cam_right_wrist`, mapped to checkpoint order `top`, `left`, `right`;
 - 10 continuous flow steps, a 30-action prediction, and the first 25 actions executed.
 
@@ -67,6 +70,10 @@ The public profile uses float32 and CUDA graphs as the faithful baseline. On a
 memory-constrained policy GPU, `dtype=bfloat16 enable_inference_cuda_graph=False`
 is a separately labelled fallback. The checkpoint does not declare a license;
 keep the weights internal and do not redistribute them.
+
+The joint-sign bridge is selected only by the exact public alias. Local/path
+checkpoints, manually configured original-HF checkpoints, and LeRobot
+checkpoints keep their existing state and action conventions unchanged.
 
 ```bash
 bash setup_eval_policy_server.sh \

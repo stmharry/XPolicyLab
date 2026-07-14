@@ -20,18 +20,20 @@ for _path in (str(_REPO_ROOT), str(_LEROBOT_SRC), str(_LEROBOT_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.policy.MolmoACT2.contract import (
     CAMERA_KEYS,
     FLOW_STEPS,
     NORM_TAG,
     apply_checkpoint_profile,
+    checkpoint_actions_to_simulator,
+    simulator_state_to_checkpoint,
+    uses_public_yam_joint_sign_bridge,
     validate_and_select_actions,
     validate_camera_payload,
     validate_robot_contract,
     validate_state,
 )
-
-from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.utils.checkpoint_resolver import candidate_checkpoint_roots
 from XPolicyLab.utils.process_data import (
     decode_image_bit,
@@ -200,6 +202,7 @@ class _OriginalHFPolicy:
         self.num_steps = int(model_cfg.get("num_steps", FLOW_STEPS))
         self.enable_depth_reasoning = bool(model_cfg.get("enable_depth_reasoning", False))
         self.enable_cuda_graph = bool(model_cfg.get("enable_inference_cuda_graph", False))
+        self._bridge_yam_joint_5_sign = uses_public_yam_joint_sign_bridge(model_cfg)
         self.config = SimpleNamespace(
             image_keys=[
                 "observation.images.top",
@@ -230,6 +233,8 @@ class _OriginalHFPolicy:
 
         validate_camera_payload(payload["images"])
         state = validate_state(payload["state"])
+        if self._bridge_yam_joint_5_sign:
+            state = simulator_state_to_checkpoint(state)
         images = [
             Image.fromarray(
                 np.transpose(payload["images"][camera], (1, 2, 0)),
@@ -256,7 +261,10 @@ class _OriginalHFPolicy:
         actions = np.asarray(actions, dtype=np.float32)
         if actions.ndim == 3 and actions.shape[0] == 1:
             actions = actions[0]
-        return validate_and_select_actions(actions)
+        actions = validate_and_select_actions(actions)
+        if self._bridge_yam_joint_5_sign:
+            actions = checkpoint_actions_to_simulator(actions)
+        return actions
 
     def reset(self) -> None:
         return None

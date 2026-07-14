@@ -5,7 +5,8 @@ bench_name: null
 task_name: null
 ckpt_name: null
 # Public alias: molmoact2_bimanual_yam. The adapter expands it to the pinned
-# original-HF snapshot under ROBODOJO_STORAGE_ROOT and uses molmoact2/.venv.
+# original-HF snapshot under ROBODOJO_STORAGE_ROOT, applies its YAM joint-5
+# sign bridge, and uses molmoact2/.venv.
 env_cfg_type: null
 action_type: joint
 seed: 0
