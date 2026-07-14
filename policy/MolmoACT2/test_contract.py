@@ -1,15 +1,60 @@
 from __future__ import annotations
 
 import os
+import threading
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
 import numpy as np
+import torch
 
 from XPolicyLab.policy.MolmoACT2 import contract
+from XPolicyLab.policy.MolmoACT2.model import _OriginalHFPolicy
 
 
 class MolmoYamContractTest(unittest.TestCase):
+    def test_original_hf_policy_uses_and_resets_configured_generator(self):
+        class FakeModel:
+            def __init__(self):
+                self.generators = []
+
+            def predict_action(self, **kwargs):
+                generator = kwargs.get("generator")
+                self.generators.append(generator)
+                actions = torch.randn((30, 14), generator=generator)
+                actions[:, contract.GRIPPER_INDICES] = 0.5
+                return SimpleNamespace(actions=actions)
+
+        policy = _OriginalHFPolicy.__new__(_OriginalHFPolicy)
+        policy.processor = object()
+        policy.model = FakeModel()
+        policy.norm_tag = contract.NORM_TAG
+        policy.num_steps = contract.FLOW_STEPS
+        policy.enable_depth_reasoning = False
+        policy.enable_cuda_graph = False
+        policy._bridge_yam_joint_5_sign = False
+        policy._seed = 17
+        policy._generator = torch.Generator(device="cpu").manual_seed(policy._seed)
+        policy._lock = threading.Lock()
+        payload = {
+            "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
+            "images": {
+                camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8)
+                for camera in contract.CAMERA_KEYS
+            },
+            "prompt": "fold the shirt",
+        }
+
+        first = policy.predict(payload)
+        second = policy.predict(payload)
+        policy.reset()
+        replayed = policy.predict(payload)
+
+        self.assertTrue(all(generator is policy._generator for generator in policy.model.generators))
+        self.assertFalse(np.array_equal(first, second))
+        np.testing.assert_array_equal(first, replayed)
+
     def test_profile_alias_is_pinned_and_other_names_are_unchanged(self):
         original = {"ckpt_name": "local_run", "actions_per_chunk": 7}
         self.assertEqual(contract.apply_checkpoint_profile(original), original)

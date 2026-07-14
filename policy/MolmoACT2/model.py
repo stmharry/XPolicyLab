@@ -203,6 +203,8 @@ class _OriginalHFPolicy:
         self.enable_depth_reasoning = bool(model_cfg.get("enable_depth_reasoning", False))
         self.enable_cuda_graph = bool(model_cfg.get("enable_inference_cuda_graph", False))
         self._bridge_yam_joint_5_sign = uses_public_yam_joint_sign_bridge(model_cfg)
+        self._seed = int(model_cfg.get("seed", 0))
+        self._generator = torch.Generator(device=device).manual_seed(self._seed)
         self.config = SimpleNamespace(
             image_keys=[
                 "observation.images.top",
@@ -254,6 +256,7 @@ class _OriginalHFPolicy:
                 num_steps=self.num_steps,
                 normalize_language=True,
                 enable_cuda_graph=self.enable_cuda_graph,
+                generator=self._generator,
             )
         actions = output.actions
         if torch.is_tensor(actions):
@@ -267,7 +270,7 @@ class _OriginalHFPolicy:
         return actions
 
     def reset(self) -> None:
-        return None
+        self._generator.manual_seed(self._seed)
 
 
 class Model(ModelTemplate):
