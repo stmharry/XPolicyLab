@@ -21,12 +21,12 @@ def _load_mapping(path: Path) -> dict[str, Any]:
     return data
 
 
-def validate_timing_chain(root: Path) -> dict[str, int]:
+def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_NAME) -> dict[str, int]:
     root = root.resolve()
     environment = _load_mapping(root / "configs/environment/bimanual_yam.yml")
     profile = contract.apply_checkpoint_profile(
         {
-            "ckpt_name": contract.YAM_PROFILE_NAME,
+            "ckpt_name": profile_name,
             "env_cfg_type": "bimanual_yam",
             "action_type": "joint",
         }
@@ -106,8 +106,9 @@ def validate_timing_chain(root: Path) -> dict[str, int]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--profile", choices=sorted(contract.YAM_PROFILE_NAMES), default=contract.YAM_PROFILE_NAME)
     args = parser.parse_args()
-    timing = validate_timing_chain(args.root)
+    timing = validate_timing_chain(args.root, args.profile)
     print(
         f"prediction={timing['predicted_horizon']} execution={timing['executed_horizon']} "
         f"control={timing['control_hz']}Hz physics={timing['physics_hz']}Hz "

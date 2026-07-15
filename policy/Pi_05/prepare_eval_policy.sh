@@ -18,7 +18,7 @@ POLICY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "[SETUP] Pi_05 dataset=${dataset} task=${task} checkpoint=${checkpoint} environment=${environment} action=${action} seed=${seed} gpu=${gpu} policy_env=${policy_env}"
 case "${checkpoint}" in
-    pi05_arx5_multitask_v1|pi05_yam_molmoact2)
+    pi05_arx5_multitask_v1|pi05_yam_molmoact2|pi05_yam_abc_pickplace)
         bash "${POLICY_DIR}/prepare_checkpoint.sh" "${checkpoint}"
         ;;
 esac

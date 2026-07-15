@@ -121,6 +121,45 @@ is independent of scene selection: `molmo_yam` is the recommended released
 workspace for matched evaluation, while another compatible scene can be
 selected without changing the embodiment or checkpoint contract.
 
+### Bimanual YAM pickup profile
+
+The checkpoint alias `pi05_yam_abc_pickplace` pins
+[`pztang/yam-abc-pickplace-safe-pi05-8gpu-m1`](https://huggingface.co/pztang/yam-abc-pickplace-safe-pi05-8gpu-m1)
+at revision `44cc2cd8d7edf9be332bc3cfa7475484897c61e9`. It is a
+LeRobot PI0.5 fine-tune on a 6,021-episode native bimanual YAM pick-and-place
+dataset. The profile keeps the canonical 14D absolute joint/gripper contract
+and native 30 Hz control. It executes 8 commands before replanning from fresh
+images during approach. Once a synchronized 50-action prediction contains a
+learned close below 0.25, the complete native-rate trajectory is executed so
+closed-loop truncation does not discard the grasp. It is then held at YAM's
+fully-closed target for pickup-only evaluation instead of following the
+checkpoint into its trained placement release. Complete native-rate chunks
+continue after the learned close so the checkpoint's pickup trajectory is not
+truncated before its lift. A fixed YAM joint-frame calibration is ramped into
+the arm selected by the checkpoint's learned close. It lowers that gripper by
+about 160 mm while preserving orientation, correcting the grasp-height gap
+measured by URDF forward kinematics in Moonlake; it does not select a grasp,
+use object state, or supply a lift trajectory. Each policy image is center-cropped to the
+checkpoint demonstrations' 640x360 source view and then resized with
+aspect-preserving black padding to 360x240, reproducing the dataset's exact
+video standardization. Simulator camera poses and Moonlake's native 640x480
+streams are unchanged.
+
+```bash
+cd XPolicyLab/policy/Pi_05
+bash prepare_checkpoint.sh pi05_yam_abc_pickplace
+bash install.sh
+bash setup_eval_policy_server.sh \
+  RoboDojo general_pickup pi05_yam_abc_pickplace bimanual_yam joint 0 \
+  0 uv 6000 0.0.0
+```
+
+Preparation downloads only the root pretrained policy files, not the uploaded
+training checkpoints, and verifies the pinned 9.35 GB model, configuration,
+and quantile normalization artifacts. The LeRobot backend uses the same
+PaliGemma sentencepiece model already required by OpenPI and the official
+OpenPI-compatible Transformers branch pinned in `uv.lock`.
+
 ## Demo Data Processing
 
 What it does: prepares RoboDojo demonstration data for policy training. The output name should match the training run identity so `train.sh` can find it.

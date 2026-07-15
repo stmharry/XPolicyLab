@@ -14,8 +14,10 @@ from openpi.training import config as _config
 
 from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.policy.Pi_05.contract import (
+    YAM_PICKUP_PROFILE_NAME,
     apply_checkpoint_profile,
     checkpoint_actions_to_robodojo,
+    hold_closed_yam_pickup_grippers,
     is_public_checkpoint_profile,
     robodojo_state_to_checkpoint,
     validate_profile_camera_payload,
@@ -112,6 +114,7 @@ class Model(ModelTemplate):
         validate_profile_runtime(self.model_cfg, self.robot_action_dim_info)
         self.observation_window: dict[str, Any] | None = None
         self._latest_env_idx_list: list[int] = [0]
+        self._pickup_gripper_hold_targets = np.full(2, np.nan, dtype=np.float32)
 
         self.policy = self.get_model(model_cfg=self.model_cfg)
         self.model = self.policy
@@ -120,6 +123,11 @@ class Model(ModelTemplate):
         train_config_name = model_cfg.get("train_config_name", "pi05_aloha")
         repo_id = model_cfg.get("repo_id", "1118")
         model_root = _resolve_pi05_model_root(model_cfg)
+
+        if model_cfg.get("checkpoint_profile") == YAM_PICKUP_PROFILE_NAME:
+            from XPolicyLab.policy.Pi_05.lerobot_backend import LeRobotPi05Policy
+
+            return LeRobotPi05Policy(model_root, seed=int(model_cfg.get("seed", 0)))
 
         config = _config.get_config(train_config_name)
         norm_stats = None
@@ -156,9 +164,25 @@ class Model(ModelTemplate):
 
         for batch_index, _ in enumerate(env_idx_list):
             single_observation = slice_stacked_obs(self.observation_window, batch_index)
-            actions = np.asarray(self.policy.infer(single_observation, **kwargs)["actions"], dtype=np.float32)
+            checkpoint_actions = np.asarray(
+                self.policy.infer(single_observation, **kwargs)["actions"],
+                dtype=np.float32,
+            )
+            actions = checkpoint_actions
             if self.is_public_checkpoint_profile:
-                actions = checkpoint_actions_to_robodojo(self.model_cfg, actions)
+                pickup_grasped = self.checkpoint_profile == YAM_PICKUP_PROFILE_NAME and np.isfinite(
+                    self._pickup_gripper_hold_targets
+                ).any()
+                actions = checkpoint_actions_to_robodojo(
+                    self.model_cfg,
+                    actions,
+                    pickup_grasped=pickup_grasped,
+                )
+            if self.checkpoint_profile == YAM_PICKUP_PROFILE_NAME:
+                actions, self._pickup_gripper_hold_targets = hold_closed_yam_pickup_grippers(
+                    actions,
+                    self._pickup_gripper_hold_targets,
+                )
             if self.robot_action_dim_info is None:
                 action_list.append(actions)
             else:
@@ -176,6 +200,10 @@ class Model(ModelTemplate):
     def reset(self):
         self.observation_window = None
         self._latest_env_idx_list = [0]
+        self._pickup_gripper_hold_targets[:] = np.nan
+        reset_policy = getattr(self.policy, "reset", None)
+        if callable(reset_policy):
+            reset_policy()
 
     def reset_obsrvationwindows(self):
         self.reset()

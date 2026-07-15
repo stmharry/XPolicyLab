@@ -503,7 +503,7 @@ name = "cuda-bindings"
 version = "12.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cuda-pathfinder" },
+    { name = "cuda-pathfinder", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/e7/b47792cc2d01c7e1d37c32402182524774dadd2d26339bd224e0e913832e/cuda_bindings-12.9.4-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c912a3d9e6b6651853eed8eed96d6800d69c08e94052c292fec3f282c5a817c9", size = 12210593, upload-time = "2025-10-21T14:51:36.574Z" },
@@ -2345,7 +2345,7 @@ requires-dist = [
     { name = "torchcodec", specifier = "==0.10.0" },
     { name = "torchvision", specifier = "==0.25.0" },
     { name = "tqdm-loggable", specifier = ">=0.2" },
-    { name = "transformers", specifier = "==4.53.2" },
+    { name = "transformers", git = "https://github.com/huggingface/transformers.git?rev=dcddb970176382c0fcf4521b0c0e6fc15894dfe0" },
     { name = "treescope", specifier = ">=0.1.7" },
     { name = "typing-extensions", specifier = ">=4.12.2" },
     { name = "tyro", specifier = ">=0.9.5" },
@@ -3839,8 +3839,8 @@ wheels = [
 
 [[package]]
 name = "transformers"
-version = "4.53.2"
-source = { registry = "https://pypi.org/simple" }
+version = "4.53.3"
+source = { git = "https://github.com/huggingface/transformers.git?rev=dcddb970176382c0fcf4521b0c0e6fc15894dfe0#dcddb970176382c0fcf4521b0c0e6fc15894dfe0" }
 dependencies = [
     { name = "filelock" },
     { name = "huggingface-hub" },
@@ -3852,10 +3852,6 @@ dependencies = [
     { name = "safetensors" },
     { name = "tokenizers" },
     { name = "tqdm" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/4c/67/80f51466ec447028fd84469b208eb742533ce06cc8fad2e3181380199e5c/transformers-4.53.2.tar.gz", hash = "sha256:6c3ed95edfb1cba71c4245758f1b4878c93bf8cde77d076307dacb2cbbd72be2", size = 9201233, upload-time = "2025-07-11T12:39:08.742Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/88/beb33a79a382fcd2aed0be5222bdc47f41e4bfe7aaa90ae1374f1d8ea2af/transformers-4.53.2-py3-none-any.whl", hash = "sha256:db8f4819bb34f000029c73c3c557e7d06fc1b8e612ec142eecdae3947a9c78bf", size = 10826609, upload-time = "2025-07-11T12:39:05.461Z" },
 ]
 
 [[package]]

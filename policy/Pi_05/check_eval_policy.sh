@@ -63,6 +63,7 @@ fi
 pass "imports" "XPolicyLab and OpenPI runtime imports succeeded"
 
 STORAGE_ROOT="${ROBODOJO_STORAGE_ROOT:-${ROBODOJO_ROOT_RESOLVED}/.robodojo}"
+LEROBOT_SNAPSHOT=""
 case "${checkpoint}" in
     pi05_arx5_multitask_v1)
         [[ "${environment}" == "arx_x5" ]] || fail "contract" "${checkpoint} requires env arx_x5, got ${environment}"
@@ -81,6 +82,12 @@ case "${checkpoint}" in
         NORM_SHA256="16daf28cec63d4829f01d7858bfed079ad18e183ce826a268f66c6669f323863"
         METADATA_SHA256="303a4e354814928e1d29b75e310f2c1ac7e7e29b62f48395b631045ca1cffc73"
         ;;
+    pi05_yam_abc_pickplace)
+        [[ "${environment}" == "bimanual_yam" ]] || fail "contract" "${checkpoint} requires env bimanual_yam, got ${environment}"
+        [[ "${action}" == "joint" ]] || fail "contract" "${checkpoint} requires joint actions, got ${action}"
+        LEROBOT_SNAPSHOT="${STORAGE_ROOT}/model_weights/Pi_05/${checkpoint}/44cc2cd8d7edf9be332bc3cfa7475484897c61e9"
+        SNAPSHOT=""
+        ;;
     *)
         candidate="${checkpoint/#\~/${HOME}}"
         if [[ "${candidate}" != /* ]]; then candidate="${POLICY_DIR}/${candidate}"; fi
@@ -94,7 +101,31 @@ case "${checkpoint}" in
         ;;
 esac
 
-if [[ -n "${SNAPSHOT}" ]]; then
+if [[ -n "${LEROBOT_SNAPSHOT}" ]]; then
+    MODEL="${LEROBOT_SNAPSHOT}/model.safetensors"
+    CONFIG="${LEROBOT_SNAPSHOT}/config.json"
+    NORM="${LEROBOT_SNAPSHOT}/policy_preprocessor_step_3_normalizer_processor.safetensors"
+    [[ -f "${MODEL}" ]] || fail "checkpoint" "LeRobot model is missing: ${MODEL}"
+    [[ "$(stat -c '%s' "${MODEL}")" == "9354050752" ]] \
+        || fail "checkpoint" "LeRobot model size does not match the pinned release"
+    printf '%s  %s\n' "0c697969f4cefbfe781b83389212b40493ce5ed51dc5c31f15a1d2b31233eebc" "${MODEL}" \
+        | sha256sum --check --strict >/dev/null 2>&1 \
+        || fail "checkpoint" "LeRobot model hash does not match the pinned release"
+    printf '%s  %s\n' "33348185438514a51dcecd003fc26f19c32be5ca685b89a9089018854ad18161" "${CONFIG}" \
+        | sha256sum --check --strict >/dev/null 2>&1 \
+        || fail "checkpoint" "LeRobot config hash does not match the pinned release"
+    printf '%s  %s\n' "1bddab6693cd52b5da72ca33e0b8f704ebc48bbeee1f48a3532c4746248cd2b6" "${NORM}" \
+        | sha256sum --check --strict >/dev/null 2>&1 \
+        || fail "checkpoint" "LeRobot normalization hash does not match the pinned release"
+    if ! "${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["type"] == "pi05"; assert d["chunk_size"] == d["n_action_steps"] == 50; assert d["use_relative_actions"] is False; assert d["input_features"]["observation.state"]["shape"] == [14]; assert d["output_features"]["action"]["shape"] == [14]' "${CONFIG}" >/dev/null 2>&1; then
+        fail "checkpoint" "LeRobot config does not match the bimanual absolute 50-action contract"
+    fi
+    if ! env PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
+        "${PYTHON_BIN}" -c 'import lerobot, torch, transformers; from transformers.models.siglip import check; assert transformers.__version__ == "4.53.3"; assert check.check_whether_transformers_replace_is_installed_correctly()' >/dev/null 2>&1; then
+        fail "imports" "LeRobot PI0.5 requires the pinned OpenPI-compatible Transformers 4.53.3 runtime"
+    fi
+    pass "checkpoint" "pinned LeRobot PI0.5 model, config, normalization, and runtime checks passed"
+elif [[ -n "${SNAPSHOT}" ]]; then
     [[ -d "${PARAMS}" ]] || fail "checkpoint" "Orbax params directory is missing: ${PARAMS}"
     [[ -f "${NORM}" ]] || fail "checkpoint" "quantile statistics are missing: ${NORM}"
     printf '%s  %s\n' "${NORM_SHA256}" "${NORM}" | sha256sum --check --strict >/dev/null 2>&1 \
@@ -108,12 +139,13 @@ if [[ -n "${SNAPSHOT}" ]]; then
     fi
     pass "checkpoint" "pinned Orbax params and quantile-stat integrity checks passed"
 fi
-if [[ "${checkpoint}" == "pi05_yam_molmoact2" ]]; then
+if [[ "${checkpoint}" == "pi05_yam_molmoact2" || "${checkpoint}" == "pi05_yam_abc_pickplace" ]]; then
     if ! timing_detail=$(env \
         CUDA_VISIBLE_DEVICES="${gpu}" \
         PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
         "${PYTHON_BIN}" -m XPolicyLab.policy.Pi_05.preflight_timing \
-        --root "${ROBODOJO_ROOT_RESOLVED}" 2>&1); then
+        --root "${ROBODOJO_ROOT_RESOLVED}" \
+        --profile "${checkpoint}" 2>&1); then
         fail "timing" "${timing_detail}"
     fi
     pass "timing" "${timing_detail}"

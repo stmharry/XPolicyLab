@@ -3,6 +3,7 @@ set -euo pipefail
 
 ARX_PROFILE="pi05_arx5_multitask_v1"
 YAM_PROFILE="pi05_yam_molmoact2"
+YAM_PICKUP_PROFILE="pi05_yam_abc_pickplace"
 PROFILE="${1:-${ARX_PROFILE}}"
 DRY_RUN=false
 
@@ -17,7 +18,7 @@ else
     fi
 fi
 if [[ $# -ne 0 ]]; then
-    echo "Usage: $0 [${ARX_PROFILE}|${YAM_PROFILE}] [--dry-run]" >&2
+    echo "Usage: $0 [${ARX_PROFILE}|${YAM_PROFILE}|${YAM_PICKUP_PROFILE}] [--dry-run]" >&2
     exit 2
 fi
 
@@ -42,9 +43,28 @@ case "${PROFILE}" in
         PARAMS_METADATA_SHA256="303a4e354814928e1d29b75e310f2c1ac7e7e29b62f48395b631045ca1cffc73"
         DOWNLOAD_INCLUDES=()
         ;;
+    "${YAM_PICKUP_PROFILE}")
+        REPO_ID="pztang/yam-abc-pickplace-safe-pi05-8gpu-m1"
+        REVISION="44cc2cd8d7edf9be332bc3cfa7475484897c61e9"
+        MODEL_RELATIVE_PATH="model.safetensors"
+        MODEL_SIZE="9354050752"
+        MODEL_SHA256="0c697969f4cefbfe781b83389212b40493ce5ed51dc5c31f15a1d2b31233eebc"
+        NORM_RELATIVE_PATH="policy_preprocessor_step_3_normalizer_processor.safetensors"
+        NORM_SHA256="1bddab6693cd52b5da72ca33e0b8f704ebc48bbeee1f48a3532c4746248cd2b6"
+        CONFIG_SHA256="33348185438514a51dcecd003fc26f19c32be5ca685b89a9089018854ad18161"
+        DOWNLOAD_INCLUDES=(
+            --include "config.json"
+            --include "model.safetensors"
+            --include "policy_preprocessor.json"
+            --include "policy_preprocessor_step_3_normalizer_processor.safetensors"
+            --include "policy_postprocessor.json"
+            --include "policy_postprocessor_step_0_unnormalizer_processor.safetensors"
+            --include "train_config.json"
+        )
+        ;;
     *)
         echo "Unknown PI0.5 checkpoint alias: ${PROFILE}" >&2
-        echo "Expected ${ARX_PROFILE} or ${YAM_PROFILE}." >&2
+        echo "Expected ${ARX_PROFILE}, ${YAM_PROFILE}, or ${YAM_PICKUP_PROFILE}." >&2
         exit 2
         ;;
 esac
@@ -139,6 +159,15 @@ fi
 
 printf '%s  %s\n' "${NORM_SHA256}" "${DESTINATION}/${NORM_RELATIVE_PATH}" | sha256sum --check --strict
 
+if [[ "${PROFILE}" == "${YAM_PICKUP_PROFILE}" ]]; then
+    [[ "$(stat -c '%s' "${DESTINATION}/${MODEL_RELATIVE_PATH}")" == "${MODEL_SIZE}" ]] || {
+        echo "PI0.5 YAM pickup model size does not match the pinned release." >&2
+        exit 1
+    }
+    printf '%s  %s\n' "${MODEL_SHA256}" "${DESTINATION}/${MODEL_RELATIVE_PATH}" | sha256sum --check --strict
+    printf '%s  %s\n' "${CONFIG_SHA256}" "${DESTINATION}/config.json" | sha256sum --check --strict
+fi
+
 if [[ "${PROFILE}" == "${YAM_PROFILE}" ]]; then
     printf '%s  %s\n' "${PARAMS_METADATA_SHA256}" "${DESTINATION}/params/_METADATA" | sha256sum --check --strict
     "${HF_BIN}" cache verify \
@@ -147,10 +176,17 @@ if [[ "${PROFILE}" == "${YAM_PROFILE}" ]]; then
         --local-dir "${DESTINATION}" \
         --fail-on-missing-files
     echo "Prepared ${PROFILE}: ${DESTINATION}"
-else
+elif [[ "${PROFILE}" == "${ARX_PROFILE}" ]]; then
     "${HF_BIN}" cache verify \
         "${REPO_ID}" \
         --revision "${REVISION}" \
         --local-dir "${DESTINATION}"
     echo "Prepared ${PROFILE}: ${DESTINATION}/checkpoints/${CHECKPOINT_STEP}"
+else
+    "${HF_BIN}" cache verify \
+        "${REPO_ID}" \
+        --revision "${REVISION}" \
+        --local-dir "${DESTINATION}" \
+        --fail-on-missing-files
+    echo "Prepared ${PROFILE}: ${DESTINATION}"
 fi

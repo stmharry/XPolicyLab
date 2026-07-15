@@ -146,6 +146,38 @@ class Pi05YamContractTest(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
                 contract.validate_profile_runtime({**cfg, key: value}, robot_info)
 
+    def test_pickup_profile_pins_bimanual_lerobot_checkpoint_and_native_timing(self):
+        with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": "/runtime"}):
+            cfg = contract.apply_checkpoint_profile(
+                {
+                    "ckpt_name": contract.YAM_PICKUP_PROFILE_NAME,
+                    "env_cfg_type": "bimanual_yam",
+                    "action_type": "joint",
+                    "checkpoint_num": 59999,
+                }
+            )
+
+        expected_root = (
+            f"/runtime/model_weights/Pi_05/{contract.YAM_PICKUP_PROFILE_NAME}/"
+            f"{contract.YAM_PICKUP_HF_REVISION}"
+        )
+        self.assertEqual(cfg["checkpoint_profile"], contract.YAM_PICKUP_PROFILE_NAME)
+        self.assertEqual(cfg["model_path"], expected_root)
+        self.assertEqual(cfg["policy_backend"], "lerobot_pi05")
+        self.assertEqual(cfg["predicted_horizon"], 50)
+        self.assertEqual(cfg["executed_horizon"], 8)
+        self.assertEqual(cfg["actions_per_chunk"], 8)
+        self.assertEqual(cfg["control_hz"], 30)
+        self.assertNotIn("checkpoint_num", cfg)
+        self.assertEqual(
+            contract.YAM_PICKUP_TASK_PROMPT,
+            "Pick and place the object",
+        )
+
+        contract.validate_profile_runtime(cfg, {"arm_dim": [6, 6], "ee_dim": [1, 1]})
+        with self.assertRaisesRegex(ValueError, "executed_horizon"):
+            contract.validate_profile_runtime({**cfg, "executed_horizon": 16}, {"arm_dim": [6, 6], "ee_dim": [1, 1]})
+
     def test_profile_requires_exact_snapshot_params_and_norm_stats(self):
         with tempfile.TemporaryDirectory() as temporary:
             storage = Path(temporary)
@@ -181,14 +213,126 @@ class Pi05YamContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"\(16, 14\)"):
             contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions[:-1])
 
+    def test_pickup_profile_uses_native_yam_frame_and_temporal_cadence(self):
+        cfg = contract.apply_checkpoint_profile(
+            {
+                "ckpt_name": contract.YAM_PICKUP_PROFILE_NAME,
+                "env_cfg_type": "bimanual_yam",
+                "action_type": "joint",
+            }
+        )
+        state = np.zeros(14, dtype=np.float32)
+        state[[4, 11]] = [0.25, -0.75]
+        state[[6, 13]] = [0.0, 1.0]
+        checkpoint_state = contract.robodojo_state_to_checkpoint(cfg, state)
+        np.testing.assert_allclose(checkpoint_state, state)
+
+        checkpoint_actions = np.tile(checkpoint_state, (50, 1))
+        checkpoint_actions[:, 0] = np.arange(50)
+        checkpoint_actions[:, 6] = 1.0
+        checkpoint_actions[:, 13] = 0.8 + np.arange(50) / 500
+        actions = contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions)
+        self.assertEqual(actions.shape, (8, 14))
+        expected = checkpoint_actions[:8].copy()
+        np.testing.assert_allclose(actions, expected)
+
+        post_grasp = contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions, pickup_grasped=True)
+        self.assertEqual(post_grasp.shape, (50, 14))
+        np.testing.assert_allclose(post_grasp, checkpoint_actions)
+
+        checkpoint_actions[:, 13] = np.linspace(1.0, 0.0, 50)
+        grasp = contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions)
+        self.assertEqual(grasp.shape, (50, 14))
+        np.testing.assert_allclose(grasp[:, :7], checkpoint_actions[:, :7])
+        np.testing.assert_allclose(grasp[:, 13], checkpoint_actions[:, 13])
+        np.testing.assert_allclose(grasp[0, 7:13], checkpoint_actions[0, 7:13])
+        np.testing.assert_allclose(
+            grasp[20:, 7:13],
+            checkpoint_actions[20:, 7:13] + contract.YAM_PICKUP_GRASP_JOINT_CALIBRATION,
+        )
+        np.testing.assert_allclose(
+            grasp[10, 7:13],
+            checkpoint_actions[10, 7:13] + contract.YAM_PICKUP_GRASP_JOINT_CALIBRATION / 2,
+        )
+
+        with self.assertRaisesRegex(ValueError, r"\(50, 14\)"):
+            contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions[:-1])
+
+    def test_pickup_grasp_calibration_only_changes_checkpoint_selected_arm(self):
+        actions = np.zeros((50, 14), dtype=np.float32)
+
+        right = contract.calibrate_yam_pickup_grasp(actions, (False, True))
+        np.testing.assert_allclose(right[:, :7], actions[:, :7])
+        np.testing.assert_allclose(right[:, 13], actions[:, 13])
+        np.testing.assert_allclose(right[0, 7:13], 0.0)
+        expected = np.tile(contract.YAM_PICKUP_GRASP_JOINT_CALIBRATION, (30, 1))
+        np.testing.assert_allclose(right[20:, 7:13], expected)
+
+        left = contract.calibrate_yam_pickup_grasp(actions, (True, False))
+        np.testing.assert_allclose(left[:, 7:], actions[:, 7:])
+        np.testing.assert_allclose(left[:, 6], actions[:, 6])
+        np.testing.assert_allclose(left[20:, :6], expected)
+
+        with self.assertRaisesRegex(ValueError, "closing-arm state"):
+            contract.calibrate_yam_pickup_grasp(actions, (True,))
+
+    def test_pickup_profile_requires_complete_lerobot_snapshot(self):
+        required = (
+            "config.json",
+            "model.safetensors",
+            "policy_preprocessor.json",
+            "policy_preprocessor_step_3_normalizer_processor.safetensors",
+            "policy_postprocessor.json",
+            "policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": temporary}):
+                exact = contract.checkpoint_path(contract.YAM_PICKUP_PROFILE_NAME)
+                exact.mkdir(parents=True)
+                with self.assertRaisesRegex(FileNotFoundError, "LeRobot PI0.5"):
+                    contract.validate_profile_checkpoint(exact, contract.YAM_PICKUP_PROFILE_NAME)
+                for filename in required:
+                    (exact / filename).touch()
+                contract.validate_profile_checkpoint(exact, contract.YAM_PICKUP_PROFILE_NAME)
+
+    def test_pickup_profile_holds_only_an_unambiguous_learned_close(self):
+        actions = np.ones((4, 14), dtype=np.float32)
+        actions[:, 6] = [0.5, 0.19, 0.8, 1.0]
+        actions[:, 13] = [0.5, 0.2, 0.18, 0.9]
+
+        held, hold_targets = contract.hold_closed_yam_pickup_grippers(actions, [np.nan, np.nan])
+
+        np.testing.assert_allclose(held, actions)
+        np.testing.assert_allclose(hold_targets, [0.0, 0.0])
+
+        held, hold_targets = contract.hold_closed_yam_pickup_grippers(actions, hold_targets)
+
+        np.testing.assert_allclose(held[:, 6], 0.0)
+        np.testing.assert_allclose(held[:, 13], 0.0)
+        np.testing.assert_allclose(hold_targets, [0.0, 0.0])
+
+        with self.assertRaisesRegex(ValueError, "gripper state"):
+            contract.hold_closed_yam_pickup_grippers(actions, [np.nan])
+
     def test_timing_preflight_matches_robodojo_profiles(self):
         from XPolicyLab.policy.Pi_05.preflight_timing import validate_timing_chain
 
         root = Path(__file__).resolve().parents[3]
         self.assertEqual(
-            validate_timing_chain(root),
+            validate_timing_chain(root, contract.YAM_PROFILE_NAME),
             {
                 "predicted_horizon": 16,
+                "executed_horizon": 8,
+                "control_hz": 30,
+                "physics_hz": 240,
+                "ticks_per_action": 8,
+                "camera_count": 3,
+            },
+        )
+        self.assertEqual(
+            validate_timing_chain(root, contract.YAM_PICKUP_PROFILE_NAME),
+            {
+                "predicted_horizon": 50,
                 "executed_horizon": 8,
                 "control_hz": 30,
                 "physics_hz": 240,
@@ -216,6 +360,10 @@ class Pi05YamContractTest(unittest.TestCase):
                 {"checkpoint_profile": contract.YAM_PROFILE_NAME},
                 dict(reversed(tuple(images.items()))),
             )
+        contract.validate_profile_camera_payload(
+            {"checkpoint_profile": contract.YAM_PICKUP_PROFILE_NAME},
+            images,
+        )
         contract.validate_profile_camera_payload({}, {})
 
     def test_openpi_config_reconstructs_released_yam_training_contract(self):
@@ -253,6 +401,71 @@ class Pi05YamContractTest(unittest.TestCase):
         )
         self.assertIn("--fail-on-missing-files", source)
         self.assertIn("DOWNLOAD_INCLUDES=()", source)
+
+    def test_checkpoint_preparation_pins_pickup_model_without_training_checkpoints(self):
+        source = (Path(__file__).parent / "prepare_checkpoint.sh").read_text()
+
+        self.assertIn('YAM_PICKUP_PROFILE="pi05_yam_abc_pickplace"', source)
+        self.assertIn('REPO_ID="pztang/yam-abc-pickplace-safe-pi05-8gpu-m1"', source)
+        self.assertIn('REVISION="44cc2cd8d7edf9be332bc3cfa7475484897c61e9"', source)
+        self.assertIn(
+            'MODEL_SHA256="0c697969f4cefbfe781b83389212b40493ce5ed51dc5c31f15a1d2b31233eebc"',
+            source,
+        )
+        self.assertIn('--include "model.safetensors"', source)
+        self.assertNotIn('--include "checkpoints/**"', source)
+
+    def test_lerobot_runtime_pins_official_openpi_transformers_branch(self):
+        project = (Path(__file__).parent / "openpi" / "pyproject.toml").read_text()
+        lock = (Path(__file__).parent / "openpi" / "uv.lock").read_text()
+
+        revision = "dcddb970176382c0fcf4521b0c0e6fc15894dfe0"
+        self.assertIn(f'rev = "{revision}"', project)
+        self.assertIn(f"transformers.git?rev={revision}", lock)
+
+    def test_lerobot_resize_preserves_training_aspect_ratio(self):
+        from XPolicyLab.policy.Pi_05.lerobot_backend import _resize_chw
+
+        training_source = np.full((3, 360, 640), 255, dtype=np.uint8)
+        moonlake = np.full((3, 480, 640), 255, dtype=np.uint8)
+        moonlake[:, :60] = 127
+        moonlake[:, 420:] = 127
+
+        expected = _resize_chw(training_source, height=240, width=360)
+        resized = _resize_chw(moonlake, height=240, width=360)
+
+        self.assertEqual(resized.shape, (240, 360, 3))
+        np.testing.assert_array_equal(resized, expected)
+        self.assertFalse(resized[:18].any())
+        self.assertTrue((resized[18:221] == 255).all())
+        self.assertFalse(resized[221:].any())
+
+    def test_lerobot_remaps_only_legacy_vision_tower_keys(self):
+        from XPolicyLab.policy.Pi_05.lerobot_backend import _remap_checkpoint_key
+
+        legacy = "model.paligemma_with_expert.paligemma.model.vision_tower.encoder.layers.0.weight"
+        current = (
+            "model.paligemma_with_expert.paligemma.model."
+            "vision_tower.vision_model.encoder.layers.0.weight"
+        )
+        self.assertEqual(_remap_checkpoint_key(legacy), current)
+        self.assertEqual(_remap_checkpoint_key(current), current)
+        self.assertEqual(_remap_checkpoint_key("model.action_out_proj.weight"), "model.action_out_proj.weight")
+
+    def test_lerobot_accepts_omitted_disabled_action_processors(self):
+        from XPolicyLab.policy.Pi_05.lerobot_backend import _validate_saved_processors
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "policy_preprocessor.json").write_text('{"steps": []}')
+            (root / "policy_postprocessor.json").write_text('{"steps": []}')
+            _validate_saved_processors(root)
+
+            (root / "policy_preprocessor.json").write_text(
+                '{"steps": [{"registry_name": "delta_actions_processor", "config": {"enabled": true}}]}'
+            )
+            with self.assertRaisesRegex(ValueError, "disabled delta_actions_processor"):
+                _validate_saved_processors(root)
 
 
 if __name__ == "__main__":

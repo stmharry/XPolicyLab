@@ -25,6 +25,11 @@ YAM_HF_REVISION = "df991e11e8f6540098338c56342b1143fac5b952"
 YAM_TRAIN_CONFIG_NAME = "yam_pi05"
 YAM_NORM_ASSET_ID = "yam-bimanual-merged"
 
+YAM_PICKUP_PROFILE_NAME = "pi05_yam_abc_pickplace"
+YAM_PICKUP_HF_REPO_ID = "pztang/yam-abc-pickplace-safe-pi05-8gpu-m1"
+YAM_PICKUP_HF_REVISION = "44cc2cd8d7edf9be332bc3cfa7475484897c61e9"
+YAM_PICKUP_TASK_PROMPT = "Pick and place the object"
+
 ACTION_DIM = 14
 ARX_ACTION_HORIZON = 50
 ACTION_HORIZON = ARX_ACTION_HORIZON
@@ -33,11 +38,36 @@ ACTION_HORIZON = ARX_ACTION_HORIZON
 # 0.267 seconds instead of playing the full 0.533-second prediction open-loop.
 YAM_ACTION_HORIZON = 16
 YAM_EXECUTED_HORIZON = 8
+YAM_PICKUP_ACTION_HORIZON = 50
+# The generic object demonstrations that match this task complete in 235 and
+# 331 native 30 Hz frames, so preserve the checkpoint's learned cadence inside
+# Moonlake's 400-step protocol. Replan every eight commands during approach.
+YAM_PICKUP_EXECUTED_HORIZON = 8
+YAM_PICKUP_POST_GRASP_EXECUTED_HORIZON = YAM_PICKUP_ACTION_HORIZON
+# Closed-loop replanning truncates the checkpoint's close, which appears late
+# in its 50-action horizon.  Once the synchronized prediction contains a
+# grasp, finish that complete native-rate chunk so the jaws close at the arm pose
+# learned by the checkpoint.  Advancing only the gripper closes before the
+# object reaches the finger roots and turns the grasp into a push.
+YAM_PICKUP_GRASP_EXECUTED_HORIZON = YAM_PICKUP_ACTION_HORIZON
 YAM_CONTROL_HZ = 30
 GRIPPER_INDICES = (6, 13)
+YAM_PICKUP_GRIPPER_CLOSE_THRESHOLD = 0.25
+YAM_PICKUP_GRIPPER_HOLD_TARGET = 0.0
+# The pickup-trained checkpoint's learned close is about 160 mm too high in the
+# Moonlake YAM geometry.  This fixed joint-frame calibration was derived from
+# YAM URDF forward kinematics and lowers the end effector without changing its
+# orientation materially. The checkpoint still selects the arm, grasp pose,
+# close timing, and subsequent lift.
+YAM_PICKUP_GRASP_CALIBRATION_RAMP_ACTIONS = 20
+YAM_PICKUP_GRASP_JOINT_CALIBRATION = np.asarray(
+    (0.0, 0.29670, -0.43484, 0.73155, 0.0, 0.0),
+    dtype=np.float32,
+)
 GRIPPER_OFFSET = -0.01
 GRIPPER_SPAN = 0.054
-PUBLIC_PROFILE_NAMES = frozenset((ARX_PROFILE_NAME, YAM_PROFILE_NAME))
+YAM_PROFILE_NAMES = frozenset((YAM_PROFILE_NAME, YAM_PICKUP_PROFILE_NAME))
+PUBLIC_PROFILE_NAMES = frozenset((ARX_PROFILE_NAME, *YAM_PROFILE_NAMES))
 
 
 def snapshot_path(profile_name: str = ARX_PROFILE_NAME) -> Path:
@@ -45,6 +75,8 @@ def snapshot_path(profile_name: str = ARX_PROFILE_NAME) -> Path:
         revision = HF_REVISION
     elif profile_name == YAM_PROFILE_NAME:
         revision = YAM_HF_REVISION
+    elif profile_name == YAM_PICKUP_PROFILE_NAME:
+        revision = YAM_PICKUP_HF_REVISION
     else:
         raise ValueError(f"Unknown public PI0.5 checkpoint profile: {profile_name}")
     return model_weight_root("Pi_05", profile_name, revision)
@@ -99,6 +131,24 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
                 "control_hz": YAM_CONTROL_HZ,
             }
         )
+    elif profile_name == YAM_PICKUP_PROFILE_NAME:
+        snapshot = snapshot_path(YAM_PICKUP_PROFILE_NAME)
+        cfg.pop("checkpoint_num", None)
+        cfg.update(
+            {
+                "checkpoint_profile": YAM_PICKUP_PROFILE_NAME,
+                "model_path": str(snapshot),
+                "hf_repo_id": YAM_PICKUP_HF_REPO_ID,
+                "hf_revision": YAM_PICKUP_HF_REVISION,
+                "policy_backend": "lerobot_pi05",
+                "embodiment_contract": _yam.ENVIRONMENT_NAME,
+                "dataset_frame": "yam_lerobot",
+                "predicted_horizon": YAM_PICKUP_ACTION_HORIZON,
+                "executed_horizon": YAM_PICKUP_EXECUTED_HORIZON,
+                "actions_per_chunk": YAM_PICKUP_EXECUTED_HORIZON,
+                "control_hz": YAM_CONTROL_HZ,
+            }
+        )
     return cfg
 
 
@@ -123,7 +173,7 @@ def validate_profile_runtime(
         if env_cfg_type != "arx_x5":
             raise ValueError(f"{ARX_PROFILE_NAME} requires env_cfg_type='arx_x5'.")
         validate_robot_contract(robot_action_dim_info)
-    elif profile_name == YAM_PROFILE_NAME:
+    elif profile_name in YAM_PROFILE_NAMES:
         _yam.validate_environment(env_cfg_type)
         _yam.validate_robot_contract(robot_action_dim_info)
         validate_yam_timing_contract(model_cfg)
@@ -132,16 +182,25 @@ def validate_profile_runtime(
 def validate_yam_timing_contract(model_cfg: dict[str, Any]) -> None:
     """Require the public YAM profile's prediction and execution cadence."""
 
+    profile_name = model_cfg.get("checkpoint_profile")
+    if profile_name == YAM_PROFILE_NAME:
+        predicted_horizon = YAM_ACTION_HORIZON
+        executed_horizon = YAM_EXECUTED_HORIZON
+    elif profile_name == YAM_PICKUP_PROFILE_NAME:
+        predicted_horizon = YAM_PICKUP_ACTION_HORIZON
+        executed_horizon = YAM_PICKUP_EXECUTED_HORIZON
+    else:
+        raise ValueError(f"Unknown public PI0.5 YAM checkpoint profile: {profile_name}")
     expected = {
-        "predicted_horizon": YAM_ACTION_HORIZON,
-        "executed_horizon": YAM_EXECUTED_HORIZON,
-        "actions_per_chunk": YAM_EXECUTED_HORIZON,
+        "predicted_horizon": predicted_horizon,
+        "executed_horizon": executed_horizon,
+        "actions_per_chunk": executed_horizon,
         "control_hz": YAM_CONTROL_HZ,
     }
     for key, expected_value in expected.items():
         actual = model_cfg.get(key, expected_value)
         if isinstance(actual, bool) or actual != expected_value:
-            raise ValueError(f"{YAM_PROFILE_NAME} requires {key}={expected_value}; got {actual!r}.")
+            raise ValueError(f"{profile_name} requires {key}={expected_value}; got {actual!r}.")
 
 
 def validate_robot_contract(robot_action_dim_info: dict[str, Any]) -> None:
@@ -162,9 +221,27 @@ def validate_profile_checkpoint(path: Path, profile_name: str = ARX_PROFILE_NAME
         else:
             detail = "the pinned snapshot root"
         raise ValueError(f"{profile_name} requires {detail}: {expected}; got {actual}.")
+    if profile_name == YAM_PICKUP_PROFILE_NAME:
+        required_files = (
+            "config.json",
+            "model.safetensors",
+            "policy_preprocessor.json",
+            "policy_postprocessor.json",
+            "policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+        )
+        missing = [name for name in required_files if not (actual / name).is_file()]
+        if missing:
+            raise FileNotFoundError(f"Missing LeRobot PI0.5 checkpoint files: {', '.join(missing)}")
+        normalizers = tuple(actual.glob("policy_preprocessor_step_*_normalizer_processor.safetensors"))
+        if len(normalizers) != 1:
+            raise FileNotFoundError(
+                f"LeRobot PI0.5 requires exactly one preprocessor normalizer; found {len(normalizers)}."
+            )
+        return
+
     if not (actual / "params").is_dir():
         raise FileNotFoundError(f"Missing Orbax params directory: {actual / 'params'}")
-    if profile_name == YAM_PROFILE_NAME:
+    if profile_name in YAM_PROFILE_NAMES:
         norm_stats = actual / "assets" / YAM_NORM_ASSET_ID / "norm_stats.json"
         if not norm_stats.is_file():
             raise FileNotFoundError(f"Missing PI0.5 YAM normalization stats: {norm_stats}")
@@ -205,26 +282,119 @@ def robodojo_state_to_checkpoint(model_cfg: dict[str, Any], values: Any) -> np.n
         return _robodojo_arx_to_checkpoint(values)
     if profile_name == YAM_PROFILE_NAME:
         return _yam_frame.simulator_to_dataset(_yam.validate_state(values))
+    if profile_name == YAM_PICKUP_PROFILE_NAME:
+        return _yam.validate_state(values).copy()
     return np.asarray(values, dtype=np.float32)
 
 
-def checkpoint_actions_to_robodojo(model_cfg: dict[str, Any], values: Any) -> np.ndarray:
+def checkpoint_actions_to_robodojo(
+    model_cfg: dict[str, Any],
+    values: Any,
+    *,
+    pickup_grasped: bool = False,
+) -> np.ndarray:
     profile_name = model_cfg.get("checkpoint_profile")
     if profile_name == ARX_PROFILE_NAME:
         return _checkpoint_arx_to_robodojo(values)
-    if profile_name == YAM_PROFILE_NAME:
+    if profile_name in YAM_PROFILE_NAMES:
         validate_yam_timing_contract(model_cfg)
-        actions = _yam.validate_action_chunk(
-            values,
-            predicted_horizon=YAM_ACTION_HORIZON,
-            executed_horizon=YAM_EXECUTED_HORIZON,
-        )
+        if profile_name == YAM_PROFILE_NAME:
+            predicted_horizon = YAM_ACTION_HORIZON
+            executed_horizon = YAM_EXECUTED_HORIZON
+            actions = _yam.validate_action_chunk(
+                values,
+                predicted_horizon=predicted_horizon,
+                executed_horizon=executed_horizon,
+            )
+        else:
+            full_chunk = _yam.validate_action_chunk(
+                values,
+                predicted_horizon=YAM_PICKUP_ACTION_HORIZON,
+                executed_horizon=YAM_PICKUP_ACTION_HORIZON,
+            )
+            grasp_predicted = False
+            if pickup_grasped:
+                executed_horizon = YAM_PICKUP_POST_GRASP_EXECUTED_HORIZON
+            else:
+                closing_arms = tuple(
+                    float(np.min(full_chunk[:, gripper_index])) < YAM_PICKUP_GRIPPER_CLOSE_THRESHOLD
+                    for gripper_index in GRIPPER_INDICES
+                )
+                grasp_predicted = any(closing_arms)
+                if grasp_predicted:
+                    full_chunk = calibrate_yam_pickup_grasp(full_chunk, closing_arms)
+                executed_horizon = (
+                    YAM_PICKUP_GRASP_EXECUTED_HORIZON if grasp_predicted else YAM_PICKUP_EXECUTED_HORIZON
+                )
+            actions = full_chunk[:executed_horizon].copy()
+            if actions.shape != (executed_horizon, ACTION_DIM):
+                raise ValueError(f"PI0.5 pickup temporal execution returned unexpected shape {actions.shape}.")
+            return actions
         return _yam_frame.dataset_to_simulator(actions)
     return np.asarray(values, dtype=np.float32)
 
 
+def calibrate_yam_pickup_grasp(
+    values: Any,
+    closing_arms: tuple[bool, bool],
+) -> np.ndarray:
+    """Apply the fixed YAM grasp-height calibration to checkpoint-selected arms."""
+
+    result = np.asarray(values, dtype=np.float32).copy()
+    expected = (YAM_PICKUP_ACTION_HORIZON, ACTION_DIM)
+    if result.shape != expected:
+        raise ValueError(f"YAM pickup grasp actions must have shape {expected}, got {result.shape}.")
+    if len(closing_arms) != len(GRIPPER_INDICES):
+        raise ValueError(f"YAM pickup closing-arm state must have shape (2,), got {closing_arms!r}.")
+
+    ramp = np.minimum(
+        np.arange(YAM_PICKUP_ACTION_HORIZON, dtype=np.float32)
+        / YAM_PICKUP_GRASP_CALIBRATION_RAMP_ACTIONS,
+        1.0,
+    )
+    arm_slices = (slice(0, 6), slice(7, 13))
+    for closing, arm_slice in zip(closing_arms, arm_slices, strict=True):
+        if closing:
+            result[:, arm_slice] += ramp[:, np.newaxis] * YAM_PICKUP_GRASP_JOINT_CALIBRATION
+    return result
+
+
+def hold_closed_yam_pickup_grippers(
+    values: Any,
+    closed_state: Any,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Retain the learned grasp while adapting pick-and-place to pickup-only."""
+
+    result = np.asarray(values, dtype=np.float32).copy()
+    if result.ndim != 2 or result.shape[1] != ACTION_DIM:
+        raise ValueError(f"YAM pickup actions must have shape (horizon, {ACTION_DIM}), got {result.shape}.")
+    if not np.isfinite(result).all():
+        raise ValueError("YAM pickup actions contain non-finite values.")
+
+    hold_targets = np.asarray(closed_state, dtype=np.float32).copy()
+    if hold_targets.shape != (len(GRIPPER_INDICES),):
+        raise ValueError(f"YAM pickup gripper state must have shape (2,), got {hold_targets.shape}.")
+
+    # A newly detected close belongs to a complete grasp trajectory predicted
+    # from one observation. On the next policy call, retain the grasp instead
+    # of letting the checkpoint continue into the release phase of its
+    # pick-and-place training task.
+    for hold_index, gripper_index in enumerate(GRIPPER_INDICES):
+        if np.isfinite(hold_targets[hold_index]):
+            result[:, gripper_index] = hold_targets[hold_index]
+            continue
+        learned_close = float(np.min(result[:, gripper_index]))
+        if learned_close < YAM_PICKUP_GRIPPER_CLOSE_THRESHOLD:
+            # The checkpoint decides whether and where to grasp. Once it does,
+            # use YAM's canonical fully-closed target to retain the object
+            # through the subsequent pickup motion instead of freezing the
+            # checkpoint's soft close, which lets the Moonlake ball slip.
+            hold_targets[hold_index] = YAM_PICKUP_GRIPPER_HOLD_TARGET
+    return result, hold_targets
+
+
 def validate_profile_camera_payload(model_cfg: dict[str, Any], images: dict[str, Any]) -> None:
-    if model_cfg.get("checkpoint_profile") == YAM_PROFILE_NAME:
+    if model_cfg.get("checkpoint_profile") in YAM_PROFILE_NAMES:
         _yam.validate_camera_payload(images)
 
 
