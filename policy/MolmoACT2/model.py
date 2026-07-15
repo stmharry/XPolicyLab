@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 import threading
@@ -24,6 +25,7 @@ from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.policy.MolmoACT2.contract import (
     CAMERA_KEYS,
     FLOW_STEPS,
+    GRIPPER_INDICES,
     NORM_TAG,
     apply_checkpoint_profile,
     checkpoint_actions_to_simulator,
@@ -205,7 +207,20 @@ class _OriginalHFPolicy:
         self.enable_cuda_graph = bool(model_cfg.get("enable_inference_cuda_graph", False))
         self._bridge_yam_joint_5_sign = uses_public_yam_joint_sign_bridge(model_cfg)
         self._seed = int(model_cfg.get("seed", 0))
-        self._generator = torch.Generator(device=device).manual_seed(self._seed)
+        self._candidate_count = int(
+            os.environ.get(
+                "MOLMOACT2_CANDIDATE_COUNT",
+                model_cfg.get("candidate_count", 1),
+            )
+        )
+        if self._candidate_count < 1:
+            raise ValueError("MolmoAct2 candidate_count must be at least 1.")
+        self._candidate_generators = [
+            torch.Generator(device=device).manual_seed(self._seed + candidate_index)
+            for candidate_index in range(self._candidate_count)
+        ]
+        self._generator = self._candidate_generators[0]
+        self.last_candidate_scores: tuple[float, ...] = ()
         self.config = SimpleNamespace(
             image_keys=[
                 "observation.images.top",
@@ -245,33 +260,45 @@ class _OriginalHFPolicy:
             )
             for camera in CAMERA_KEYS
         ]
+        candidate_actions = []
         with self._lock:
-            output = self.model.predict_action(
-                processor=self.processor,
-                images=images,
-                task=payload["prompt"],
-                state=state,
-                norm_tag=self.norm_tag,
-                inference_action_mode="continuous",
-                enable_depth_reasoning=self.enable_depth_reasoning,
-                num_steps=self.num_steps,
-                normalize_language=True,
-                enable_cuda_graph=self.enable_cuda_graph,
-                generator=self._generator,
-            )
-        actions = output.actions
-        if torch.is_tensor(actions):
-            actions = actions.detach().to(dtype=torch.float32, device="cpu").numpy()
-        actions = np.asarray(actions, dtype=np.float32)
-        if actions.ndim == 3 and actions.shape[0] == 1:
-            actions = actions[0]
-        actions = validate_and_select_actions(actions)
+            for generator in self._candidate_generators:
+                output = self.model.predict_action(
+                    processor=self.processor,
+                    images=images,
+                    task=payload["prompt"],
+                    state=state,
+                    norm_tag=self.norm_tag,
+                    inference_action_mode="continuous",
+                    enable_depth_reasoning=self.enable_depth_reasoning,
+                    num_steps=self.num_steps,
+                    normalize_language=True,
+                    enable_cuda_graph=self.enable_cuda_graph,
+                    generator=generator,
+                )
+                actions = output.actions
+                if torch.is_tensor(actions):
+                    actions = actions.detach().to(dtype=torch.float32, device="cpu").numpy()
+                actions = np.asarray(actions, dtype=np.float32)
+                if actions.ndim == 3 and actions.shape[0] == 1:
+                    actions = actions[0]
+                candidate_actions.append(validate_and_select_actions(actions))
+
+        arm_mask = np.ones(state.shape[0], dtype=bool)
+        arm_mask[list(GRIPPER_INDICES)] = False
+        self.last_candidate_scores = tuple(
+            float(np.linalg.norm(actions[:, arm_mask] - state[arm_mask], axis=1).max())
+            for actions in candidate_actions
+        )
+        actions = candidate_actions[int(np.argmax(self.last_candidate_scores))]
         if self._bridge_yam_joint_5_sign:
             actions = checkpoint_actions_to_simulator(actions)
         return actions
 
     def reset(self) -> None:
-        self._generator.manual_seed(self._seed)
+        for candidate_index, generator in enumerate(self._candidate_generators):
+            generator.manual_seed(self._seed + candidate_index)
+        self.last_candidate_scores = ()
 
 
 class Model(ModelTemplate):
