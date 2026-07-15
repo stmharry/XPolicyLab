@@ -43,7 +43,6 @@ def validate_timing_chain(root: Path) -> dict[str, int]:
         raise ValueError("bimanual_yam must select named sim and camera profiles")
 
     sim = _load_mapping(root / "configs/sim" / f"{sim_name}.yml")
-    camera = _load_mapping(root / "configs/camera" / f"{camera_name}.yml")
     observation = environment.get("observation") or {}
 
     control_hz = int(profile["control_hz"])
@@ -70,16 +69,29 @@ def validate_timing_chain(root: Path) -> dict[str, int]:
             f"render_interval must equal ticks per action ({ticks_per_action}); got {sim.get('render_interval')!r}"
         )
 
-    cameras = (camera.get("camera_rig") or {}).get("cameras") or {}
     expected_cameras = ("cam_head", "cam_left_wrist", "cam_right_wrist")
-    if tuple(cameras) != expected_cameras:
-        raise ValueError(f"bimanual_yam cameras must be {expected_cameras}; got {tuple(cameras)}")
-    for key in expected_cameras:
-        sensor = cameras[key].get("sensor") or {}
-        if sensor.get("fps") != control_hz:
-            raise ValueError(f"{key} must run at {control_hz} Hz; got {sensor.get('fps')!r}")
-        if sensor.get("stream_resolution") != [640, 360]:
-            raise ValueError(f"{key} must stream at 640x360; got {sensor.get('stream_resolution')!r}")
+    setup_resolutions = {
+        "bimanual_yam_molmoact2": [640, 360],
+        "bimanual_yam_moonlake_office": [640, 480],
+    }
+    for setup_name, expected_resolution in setup_resolutions.items():
+        setup = _load_mapping(root / "configs/environment" / f"{setup_name}.yml")
+        setup_camera_name = (setup.get("config") or {}).get("camera")
+        if not isinstance(setup_camera_name, str):
+            raise ValueError(f"{setup_name} must select a named camera profile")
+        camera = _load_mapping(root / "configs/camera" / f"{setup_camera_name}.yml")
+        cameras = (camera.get("camera_rig") or {}).get("cameras") or {}
+        if tuple(cameras) != expected_cameras:
+            raise ValueError(f"{setup_name} cameras must be {expected_cameras}; got {tuple(cameras)}")
+        for key in expected_cameras:
+            sensor = cameras[key].get("sensor") or {}
+            if sensor.get("fps") != control_hz:
+                raise ValueError(f"{setup_name}/{key} must run at {control_hz} Hz; got {sensor.get('fps')!r}")
+            if sensor.get("stream_resolution") != expected_resolution:
+                raise ValueError(
+                    f"{setup_name}/{key} must stream at {expected_resolution}; "
+                    f"got {sensor.get('stream_resolution')!r}"
+                )
 
     return {
         "predicted_horizon": int(profile["predicted_horizon"]),
@@ -100,7 +112,7 @@ def main() -> None:
         f"prediction={timing['predicted_horizon']} execution={timing['executed_horizon']} "
         f"control={timing['control_hz']}Hz physics={timing['physics_hz']}Hz "
         f"ticks_per_action={timing['ticks_per_action']} "
-        f"cameras={timing['camera_count']}x640x360@{timing['control_hz']}Hz"
+        f"cameras={timing['camera_count']}x640x{{360,480}}@{timing['control_hz']}Hz"
     )
 
 

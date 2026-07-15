@@ -198,13 +198,19 @@ class Pi05YamContractTest(unittest.TestCase):
         )
 
     def test_camera_contract_is_only_enforced_for_yam_profile(self):
+        for height in (360, 480):
+            images = {
+                key: np.zeros((3, height, 640), dtype=np.uint8)
+                for key in ("cam_high", "cam_left_wrist", "cam_right_wrist")
+            }
+            contract.validate_profile_camera_payload(
+                {"checkpoint_profile": contract.YAM_PROFILE_NAME},
+                images,
+            )
         images = {
-            key: np.zeros((3, 360, 640), dtype=np.uint8) for key in ("cam_high", "cam_left_wrist", "cam_right_wrist")
+            key: np.zeros((3, 360, 640), dtype=np.uint8)
+            for key in ("cam_high", "cam_left_wrist", "cam_right_wrist")
         }
-        contract.validate_profile_camera_payload(
-            {"checkpoint_profile": contract.YAM_PROFILE_NAME},
-            images,
-        )
         with self.assertRaisesRegex(ValueError, "camera order"):
             contract.validate_profile_camera_payload(
                 {"checkpoint_profile": contract.YAM_PROFILE_NAME},

@@ -32,6 +32,15 @@ class BimanualYamContractTest(unittest.TestCase):
         np.testing.assert_array_equal(selected[:, 6], np.ones(25))
         np.testing.assert_array_equal(selected[:, 13], np.zeros(25))
 
+    def test_camera_validation_accepts_classic_and_moonlake_source_shapes(self):
+        for shape in yam.CAMERA_SHAPES:
+            images = {key: np.zeros(shape, dtype=np.uint8) for key in yam.CAMERA_KEYS}
+            yam.validate_camera_payload(images)
+
+        images = {key: np.zeros((3, 400, 640), dtype=np.uint8) for key in yam.CAMERA_KEYS}
+        with self.assertRaisesRegex(ValueError, "one of"):
+            yam.validate_camera_payload(images)
+
 
 if __name__ == "__main__":
     unittest.main()

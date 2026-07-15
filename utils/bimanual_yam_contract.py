@@ -10,6 +10,7 @@ ENVIRONMENT_NAME = "bimanual_yam"
 STATE_DIM = 14
 CAMERA_KEYS = ("cam_high", "cam_left_wrist", "cam_right_wrist")
 CAMERA_SHAPE = (3, 360, 640)
+CAMERA_SHAPES = (CAMERA_SHAPE, (3, 480, 640))
 GRIPPER_INDICES = (6, 13)
 
 
@@ -44,9 +45,10 @@ def validate_camera_payload(images: dict[str, Any]) -> None:
         raise ValueError(f"YAM camera order must be {', '.join(CAMERA_KEYS)}; got {tuple(images)}.")
     for key in CAMERA_KEYS:
         image = np.asarray(images[key])
-        if image.shape != CAMERA_SHAPE or image.dtype != np.uint8:
+        if image.shape not in CAMERA_SHAPES or image.dtype != np.uint8:
             raise ValueError(
-                f"{key} must be uint8 CHW with shape {CAMERA_SHAPE}, got dtype={image.dtype}, shape={image.shape}."
+                f"{key} must be uint8 CHW with one of {CAMERA_SHAPES}, "
+                f"got dtype={image.dtype}, shape={image.shape}."
             )
 
 
