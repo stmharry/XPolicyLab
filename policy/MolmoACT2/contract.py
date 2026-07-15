@@ -30,6 +30,7 @@ NORM_TAG = "yam_dual_molmoact2"
 PREDICTED_HORIZON = 30
 EXECUTED_HORIZON = 30
 FLOW_STEPS = 10
+CANDIDATE_COUNT = 16
 
 
 def checkpoint_path() -> str:
@@ -53,6 +54,7 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
             "inference_action_mode": "continuous",
             "dtype": "float32",
             "num_steps": FLOW_STEPS,
+            "candidate_count": CANDIDATE_COUNT,
             "enable_depth_reasoning": False,
             "enable_inference_cuda_graph": True,
             "warmup_runs": 3,

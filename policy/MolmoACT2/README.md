@@ -71,7 +71,11 @@ The checkpoint alias `molmoact2_bimanual_yam` is a fixed evaluation contract:
   the MolmoAct2 dataset-frame transform negates flat indices `4` and `11` at
   the checkpoint boundary without changing the simulator convention;
 - RGB cameras `cam_head`, `cam_left_wrist`, `cam_right_wrist`, mapped to checkpoint order `top`, `left`, `right`;
-- 10 continuous flow steps with the checkpoint-native 30-action prediction executed in full.
+- 10 continuous flow steps with the checkpoint-native 30-action prediction executed in full;
+- 16 deterministic candidate streams, seeded from the configured evaluation seed,
+  with the candidate containing the largest arm displacement selected. Gripper
+  values are excluded from scoring and every candidate still passes the shared
+  YAM shape, finite-value, and normalized-gripper checks before selection.
 
 Prepare the revision-pinned snapshot and original-HF inference environment:
 

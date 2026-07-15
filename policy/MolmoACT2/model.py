@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 import sys
 import threading
@@ -207,12 +206,7 @@ class _OriginalHFPolicy:
         self.enable_cuda_graph = bool(model_cfg.get("enable_inference_cuda_graph", False))
         self._bridge_yam_joint_5_sign = uses_public_yam_joint_sign_bridge(model_cfg)
         self._seed = int(model_cfg.get("seed", 0))
-        self._candidate_count = int(
-            os.environ.get(
-                "MOLMOACT2_CANDIDATE_COUNT",
-                model_cfg.get("candidate_count", 1),
-            )
-        )
+        self._candidate_count = int(model_cfg.get("candidate_count", 1))
         if self._candidate_count < 1:
             raise ValueError("MolmoAct2 candidate_count must be at least 1.")
         self._candidate_generators = [

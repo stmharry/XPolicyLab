@@ -62,9 +62,10 @@ class MolmoYamContractTest(unittest.TestCase):
         class FakeModel:
             def predict_action(self, **kwargs):
                 generator = kwargs["generator"]
+                candidate_index = generator.initial_seed() - 17
                 actions = torch.zeros((30, 14))
-                actions[:, 0] = float(generator.initial_seed() - 17)
-                actions[:, contract.GRIPPER_INDICES] = 0.5
+                actions[:, 0] = 0.2 * candidate_index
+                actions[:, contract.GRIPPER_INDICES] = 1.0 if candidate_index == 0 else 0.5
                 return SimpleNamespace(actions=actions)
 
         policy = _OriginalHFPolicy.__new__(_OriginalHFPolicy)
@@ -95,8 +96,8 @@ class MolmoYamContractTest(unittest.TestCase):
 
         selected = policy.predict(payload)
 
-        np.testing.assert_array_equal(selected[:, 0], np.full(30, 2.0))
-        self.assertEqual(policy.last_candidate_scores, (0.0, 1.0, 2.0))
+        np.testing.assert_allclose(selected[:, 0], np.full(30, 0.4))
+        np.testing.assert_allclose(policy.last_candidate_scores, (0.0, 0.2, 0.4))
         policy.reset()
         self.assertEqual(policy.last_candidate_scores, ())
         self.assertEqual(
@@ -114,6 +115,7 @@ class MolmoYamContractTest(unittest.TestCase):
         self.assertEqual(cfg["actions_per_chunk"], 30)
         self.assertEqual(cfg["predicted_horizon"], 30)
         self.assertEqual(cfg["num_steps"], 10)
+        self.assertEqual(cfg["candidate_count"], 16)
         self.assertEqual(cfg["dtype"], "float32")
         self.assertTrue(cfg["enable_inference_cuda_graph"])
         self.assertEqual(cfg["warmup_runs"], 3)
