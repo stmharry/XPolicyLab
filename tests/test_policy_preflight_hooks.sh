@@ -17,6 +17,10 @@ exit 0
 EOF
 cat >"${TMP}/project/.venv/bin/python" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "-c" && "${2:-}" == *"import XPolicyLab, molmo,"* ]]; then
+    echo "unexpected import of nonexistent molmo module" >&2
+    exit 1
+fi
 exit 0
 EOF
 chmod +x "${TMP}/bin/nvidia-smi" "${TMP}/bin/uv" "${TMP}/project/.venv/bin/python"

@@ -69,7 +69,7 @@ else
 fi
 
 if ! env CUDA_VISIBLE_DEVICES="${gpu}" PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}${PYTHONPATH:+:${PYTHONPATH}}" \
-    "${PYTHON_BIN}" -c 'import XPolicyLab, molmo, torch, transformers, websockets; assert torch.cuda.is_available(); assert torch.cuda.device_count() >= 1' >/dev/null 2>&1; then
+    "${PYTHON_BIN}" -c 'import XPolicyLab, torch, transformers, websockets; assert torch.cuda.is_available(); assert torch.cuda.device_count() >= 1' >/dev/null 2>&1; then
     fail "imports" "MolmoACT2 runtime imports or Torch CUDA probe failed"
 fi
 pass "imports" "XPolicyLab, MolmoACT2, Transformers, Torch, and CUDA checks succeeded"
