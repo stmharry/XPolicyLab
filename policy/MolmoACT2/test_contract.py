@@ -34,6 +34,7 @@ class MolmoYamContractTest(unittest.TestCase):
         policy.enable_depth_reasoning = False
         policy.enable_cuda_graph = False
         policy._bridge_yam_joint_5_sign = False
+        policy._camera_input_contract = None
         policy._seed = 17
         policy._generator = torch.Generator(device="cpu").manual_seed(policy._seed)
         policy._candidate_generators = [policy._generator]
@@ -42,10 +43,7 @@ class MolmoYamContractTest(unittest.TestCase):
         policy._lock = threading.Lock()
         payload = {
             "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
-            "images": {
-                camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8)
-                for camera in contract.CAMERA_KEYS
-            },
+            "images": {camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8) for camera in contract.CAMERA_KEYS},
             "prompt": "fold the shirt",
         }
 
@@ -76,6 +74,7 @@ class MolmoYamContractTest(unittest.TestCase):
         policy.enable_depth_reasoning = False
         policy.enable_cuda_graph = False
         policy._bridge_yam_joint_5_sign = False
+        policy._camera_input_contract = None
         policy._seed = 17
         policy._candidate_count = 3
         policy._candidate_generators = [
@@ -87,10 +86,7 @@ class MolmoYamContractTest(unittest.TestCase):
         policy._lock = threading.Lock()
         payload = {
             "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
-            "images": {
-                camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8)
-                for camera in contract.CAMERA_KEYS
-            },
+            "images": {camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8) for camera in contract.CAMERA_KEYS},
             "prompt": "put the object into the box",
         }
 
@@ -121,10 +117,159 @@ class MolmoYamContractTest(unittest.TestCase):
         self.assertEqual(cfg["warmup_runs"], 3)
         self.assertEqual(cfg["embodiment_contract"], "bimanual_yam")
         self.assertEqual(cfg["dataset_frame"], "yam_molmoact2")
+        self.assertEqual(cfg["camera_input_contract"], contract.CAMERA_INPUT_CONTRACT)
         self.assertEqual(
             cfg["pretrained_path"],
             f"/runtime/model_weights/MolmoACT2/{contract.PROFILE_NAME}/{contract.HF_REVISION}",
         )
+
+    def test_public_checkpoint_camera_contract_center_crops_moonlake_without_mutation(self):
+        images = {}
+        originals = {}
+        for camera_index, camera in enumerate(contract.CAMERA_KEYS):
+            row_values = np.arange(480, dtype=np.uint16)[None, :, None]
+            channel_values = np.arange(3, dtype=np.uint16)[:, None, None]
+            image = np.broadcast_to(
+                (row_values + 17 * channel_values + camera_index) % 256,
+                contract.MOONLAKE_CAMERA_SHAPE,
+            ).astype(np.uint8)
+            images[camera] = image
+            originals[camera] = image.copy()
+
+        prepared = contract.prepare_checkpoint_camera_payload(
+            images,
+            camera_input_contract=contract.CAMERA_INPUT_CONTRACT,
+        )
+
+        self.assertEqual(tuple(prepared), contract.CAMERA_KEYS)
+        for camera in contract.CAMERA_KEYS:
+            self.assertEqual(prepared[camera].shape, contract.CHECKPOINT_CAMERA_SHAPE)
+            self.assertEqual(prepared[camera].dtype, np.uint8)
+            self.assertTrue(prepared[camera].flags.c_contiguous)
+            np.testing.assert_array_equal(
+                prepared[camera],
+                originals[camera][:, 60:420, :],
+            )
+            np.testing.assert_array_equal(images[camera], originals[camera])
+
+    def test_public_checkpoint_camera_contract_preserves_native_training_geometry(self):
+        images = {
+            camera: np.asfortranarray(np.full(contract.CHECKPOINT_CAMERA_SHAPE, camera_index, dtype=np.uint8))
+            for camera_index, camera in enumerate(contract.CAMERA_KEYS)
+        }
+
+        prepared = contract.prepare_checkpoint_camera_payload(
+            images,
+            camera_input_contract=contract.CAMERA_INPUT_CONTRACT,
+        )
+
+        for camera in contract.CAMERA_KEYS:
+            np.testing.assert_array_equal(prepared[camera], images[camera])
+            self.assertTrue(prepared[camera].flags.c_contiguous)
+
+    def test_camera_input_contract_rejects_unknown_and_nonpublic_profiles(self):
+        with self.assertRaisesRegex(ValueError, "Unknown MolmoAct2 camera_input_contract"):
+            contract.resolve_camera_input_contract({"camera_input_contract": "unknown"})
+        with self.assertRaisesRegex(ValueError, "reserved for"):
+            contract.resolve_camera_input_contract(
+                {
+                    "ckpt_name": "local-original-hf",
+                    "checkpoint_backend": "original_hf",
+                    "camera_input_contract": contract.CAMERA_INPUT_CONTRACT,
+                }
+            )
+        self.assertIsNone(
+            contract.resolve_camera_input_contract(
+                {"ckpt_name": "local-original-hf", "checkpoint_backend": "original_hf"}
+            )
+        )
+
+    def test_original_hf_public_profile_presents_all_cameras_at_640_by_360(self):
+        class FakeModel:
+            def __init__(self):
+                self.image_sizes = []
+                self.images = []
+
+            def predict_action(self, **kwargs):
+                self.image_sizes.append(tuple(image.size for image in kwargs["images"]))
+                self.images.append(tuple(np.asarray(image) for image in kwargs["images"]))
+                actions = torch.zeros((30, 14))
+                actions[:, contract.GRIPPER_INDICES] = 0.5
+                return SimpleNamespace(actions=actions)
+
+        policy = _OriginalHFPolicy.__new__(_OriginalHFPolicy)
+        policy.processor = object()
+        policy.model = FakeModel()
+        policy.norm_tag = contract.NORM_TAG
+        policy.num_steps = contract.FLOW_STEPS
+        policy.enable_depth_reasoning = False
+        policy.enable_cuda_graph = False
+        policy._bridge_yam_joint_5_sign = False
+        policy._camera_input_contract = contract.CAMERA_INPUT_CONTRACT
+        policy._seed = 0
+        policy._candidate_count = 1
+        policy._candidate_generators = [torch.Generator(device="cpu").manual_seed(0)]
+        policy._generator = policy._candidate_generators[0]
+        policy.last_candidate_scores = ()
+        policy._lock = threading.Lock()
+        images = {
+            camera: np.full(
+                contract.MOONLAKE_CAMERA_SHAPE,
+                camera_index,
+                dtype=np.uint8,
+            )
+            for camera_index, camera in enumerate(contract.CAMERA_KEYS)
+        }
+        payload = {
+            "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
+            "images": images,
+            "prompt": "Pick up the ball by 10 cm.",
+        }
+
+        policy.predict(payload)
+
+        self.assertEqual(policy.model.image_sizes, [((640, 360),) * 3])
+        for camera_index, image in enumerate(policy.model.images[0]):
+            self.assertEqual(image.shape, (360, 640, 3))
+            self.assertTrue(np.all(image == camera_index))
+
+    def test_original_hf_local_checkpoint_keeps_native_moonlake_shape(self):
+        class FakeModel:
+            def __init__(self):
+                self.image_sizes = []
+
+            def predict_action(self, **kwargs):
+                self.image_sizes.append(tuple(image.size for image in kwargs["images"]))
+                actions = torch.zeros((30, 14))
+                actions[:, contract.GRIPPER_INDICES] = 0.5
+                return SimpleNamespace(actions=actions)
+
+        policy = _OriginalHFPolicy.__new__(_OriginalHFPolicy)
+        policy.processor = object()
+        policy.model = FakeModel()
+        policy.norm_tag = contract.NORM_TAG
+        policy.num_steps = contract.FLOW_STEPS
+        policy.enable_depth_reasoning = False
+        policy.enable_cuda_graph = False
+        policy._bridge_yam_joint_5_sign = False
+        policy._camera_input_contract = None
+        policy._seed = 0
+        policy._candidate_count = 1
+        policy._candidate_generators = [torch.Generator(device="cpu").manual_seed(0)]
+        policy._generator = policy._candidate_generators[0]
+        policy.last_candidate_scores = ()
+        policy._lock = threading.Lock()
+        payload = {
+            "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
+            "images": {
+                camera: np.zeros(contract.MOONLAKE_CAMERA_SHAPE, dtype=np.uint8) for camera in contract.CAMERA_KEYS
+            },
+            "prompt": "local checkpoint prompt",
+        }
+
+        policy.predict(payload)
+
+        self.assertEqual(policy.model.image_sizes, [((640, 480),) * 3])
 
     def test_robot_state_camera_and_action_contract(self):
         contract.validate_environment("bimanual_yam")

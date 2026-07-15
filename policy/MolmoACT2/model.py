@@ -28,6 +28,8 @@ from XPolicyLab.policy.MolmoACT2.contract import (
     NORM_TAG,
     apply_checkpoint_profile,
     checkpoint_actions_to_simulator,
+    prepare_checkpoint_camera_payload,
+    resolve_camera_input_contract,
     simulator_state_to_checkpoint,
     uses_public_yam_joint_sign_bridge,
     validate_and_select_actions,
@@ -205,6 +207,7 @@ class _OriginalHFPolicy:
         self.enable_depth_reasoning = bool(model_cfg.get("enable_depth_reasoning", False))
         self.enable_cuda_graph = bool(model_cfg.get("enable_inference_cuda_graph", False))
         self._bridge_yam_joint_5_sign = uses_public_yam_joint_sign_bridge(model_cfg)
+        self._camera_input_contract = resolve_camera_input_contract(model_cfg)
         self._seed = int(model_cfg.get("seed", 0))
         self._candidate_count = int(model_cfg.get("candidate_count", 1))
         if self._candidate_count < 1:
@@ -243,13 +246,20 @@ class _OriginalHFPolicy:
     def predict(self, payload: dict[str, Any]) -> np.ndarray:
         from PIL import Image
 
-        validate_camera_payload(payload["images"])
+        camera_payload = payload["images"]
+        if self._camera_input_contract is None:
+            validate_camera_payload(camera_payload)
+        else:
+            camera_payload = prepare_checkpoint_camera_payload(
+                camera_payload,
+                camera_input_contract=self._camera_input_contract,
+            )
         state = validate_state(payload["state"])
         if self._bridge_yam_joint_5_sign:
             state = simulator_state_to_checkpoint(state)
         images = [
             Image.fromarray(
-                np.transpose(payload["images"][camera], (1, 2, 0)),
+                np.transpose(camera_payload[camera], (1, 2, 0)),
                 mode="RGB",
             )
             for camera in CAMERA_KEYS
@@ -281,8 +291,7 @@ class _OriginalHFPolicy:
         arm_mask = np.ones(state.shape[0], dtype=bool)
         arm_mask[list(GRIPPER_INDICES)] = False
         self.last_candidate_scores = tuple(
-            float(np.linalg.norm(actions[:, arm_mask] - state[arm_mask], axis=1).max())
-            for actions in candidate_actions
+            float(np.linalg.norm(actions[:, arm_mask] - state[arm_mask], axis=1).max()) for actions in candidate_actions
         )
         actions = candidate_actions[int(np.argmax(self.last_candidate_scores))]
         if self._bridge_yam_joint_5_sign:

@@ -31,6 +31,10 @@ PREDICTED_HORIZON = 30
 EXECUTED_HORIZON = 30
 FLOW_STEPS = 10
 CANDIDATE_COUNT = 16
+CAMERA_INPUT_CONTRACT = "molmoact2_bimanual_yam_640x360_center_crop_v1"
+CHECKPOINT_CAMERA_SHAPE = (3, 360, 640)
+MOONLAKE_CAMERA_SHAPE = (3, 480, 640)
+MOONLAKE_CENTER_CROP = slice(60, 420)
 
 
 def checkpoint_path() -> str:
@@ -62,18 +66,67 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
             "actions_per_chunk": EXECUTED_HORIZON,
             "embodiment_contract": "bimanual_yam",
             "dataset_frame": "yam_molmoact2",
+            "camera_input_contract": CAMERA_INPUT_CONTRACT,
         }
     )
     return cfg
 
 
+def resolve_camera_input_contract(model_cfg: dict[str, Any]) -> str | None:
+    """Resolve the public checkpoint's image geometry without affecting local runs."""
+
+    contract_name = model_cfg.get("camera_input_contract")
+    if contract_name is None:
+        return None
+    if contract_name != CAMERA_INPUT_CONTRACT:
+        raise ValueError(f"Unknown MolmoAct2 camera_input_contract: {contract_name!r}.")
+    if not uses_public_yam_joint_sign_bridge(model_cfg):
+        raise ValueError(
+            f"camera_input_contract={CAMERA_INPUT_CONTRACT!r} is reserved for "
+            f"ckpt_name={PROFILE_NAME!r} with checkpoint_backend='original_hf'."
+        )
+    return CAMERA_INPUT_CONTRACT
+
+
+def prepare_checkpoint_camera_payload(
+    images: dict[str, Any],
+    *,
+    camera_input_contract: str,
+) -> dict[str, np.ndarray]:
+    """Present source RGB at the pinned public checkpoint's 640x360 geometry."""
+
+    if camera_input_contract != CAMERA_INPUT_CONTRACT:
+        raise ValueError(f"Unknown MolmoAct2 camera_input_contract: {camera_input_contract!r}.")
+
+    validate_camera_payload(images)
+    prepared: dict[str, np.ndarray] = {}
+    for camera in CAMERA_KEYS:
+        source = np.asarray(images[camera])
+        if source.shape == CHECKPOINT_CAMERA_SHAPE:
+            checkpoint_image = source
+        elif source.shape == MOONLAKE_CAMERA_SHAPE:
+            checkpoint_image = source[:, MOONLAKE_CENTER_CROP, :]
+        else:  # Defensive if the shared source contract expands independently.
+            raise ValueError(
+                f"{camera} cannot be presented to {camera_input_contract!r}: "
+                f"expected one of {(CHECKPOINT_CAMERA_SHAPE, MOONLAKE_CAMERA_SHAPE)}, "
+                f"got {source.shape}."
+            )
+        prepared[camera] = np.ascontiguousarray(checkpoint_image)
+
+    for camera, image in prepared.items():
+        if image.shape != CHECKPOINT_CAMERA_SHAPE or image.dtype != np.uint8:
+            raise ValueError(
+                f"{camera} must reach the MolmoAct2 checkpoint as uint8 CHW "
+                f"{CHECKPOINT_CAMERA_SHAPE}, got dtype={image.dtype}, shape={image.shape}."
+            )
+    return prepared
+
+
 def uses_public_yam_joint_sign_bridge(model_cfg: dict[str, Any]) -> bool:
     """Return whether the pinned original-HF YAM boundary needs sign bridging."""
 
-    return (
-        model_cfg.get("ckpt_name") == PROFILE_NAME
-        and model_cfg.get("checkpoint_backend") == "original_hf"
-    )
+    return model_cfg.get("ckpt_name") == PROFILE_NAME and model_cfg.get("checkpoint_backend") == "original_hf"
 
 
 def validate_and_select_actions(actions: Any) -> np.ndarray:
