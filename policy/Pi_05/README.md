@@ -41,6 +41,22 @@ bash install.sh
 source openpi/.venv/bin/activate
 ```
 
+From a RoboDojo checkout, use the standardized setup and validation surfaces:
+
+```bash
+make policy-setup
+make preflight
+make preflight DEEP=true
+```
+
+`prepare_eval_policy.sh` prepares either public alias when selected and installs
+OpenPI plus XPolicyLab idempotently. `check_eval_policy.sh` is read-only. It
+checks the selected physical GPU, the OpenPI uv lock and environment, required
+imports, alias/environment/joint-action compatibility, Orbax `params`,
+quantile-stat fields, and the pinned small-file hashes. It does not load model
+weights. Local paths and non-public aliases retain legacy behavior and warn
+when no pinned integrity profile exists.
+
 ### ARX X5 multitask public baseline
 
 The checkpoint alias `pi05_arx5_multitask_v1` pins the public repository at

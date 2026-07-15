@@ -76,6 +76,8 @@ policy/<POLICY>/
 ├── eval.sh                      # same-machine evaluation
 ├── setup_eval_policy_server.sh  # policy-side server
 ├── setup_eval_env_client.sh     # environment-side client
+├── prepare_eval_policy.sh       # optional explicit setup mutation hook
+├── check_eval_policy.sh         # optional read-only fast-preflight hook
 ├── deploy.yml                   # runtime config
 ├── deploy.py                    # evaluation loop
 └── model.py                     # model adapter
@@ -221,6 +223,28 @@ For RoboDojo simulation, mount `XPolicyLab/` beside the simulator-side `env_cfg/
 ## 🔄 Common Workflow
 
 Most adapters expose the same top-level shape. Some policies add extra arguments, consume upstream-native datasets, or skip training support. Follow the policy README when it differs from this template.
+
+### RoboDojo setup and preflight hooks
+
+RoboDojo-aware adapters may implement two optional policy-owned hooks:
+
+```text
+prepare_eval_policy.sh <dataset> <task> <ckpt> <env> <action> <seed> <gpu> <policy-env>
+check_eval_policy.sh   <dataset> <task> <ckpt> <env> <action> <seed> <gpu> <policy-env>
+```
+
+`prepare_eval_policy.sh` is the mutation boundary for idempotent dependency
+installation and checkpoint preparation. `check_eval_policy.sh` must be
+read-only: it may inspect locks, environments, imports, GPUs, source revisions,
+checkpoint structure, small pinned hashes, and embodiment/action contracts, but
+must never install, download, load a model, start a server, or publish.
+
+The check hook exits `0` when all supported checks pass, `3` when supported
+checks pass but some policy-specific validation is unavailable, and another
+nonzero status on failure. Diagnostics use `PASS`, `WARN`, or `FAIL`, and
+failures include an actionable remediation such as `make policy-setup`.
+Adapters without either hook remain compatible with RoboDojo's generic runtime,
+import, and explicit-checkpoint checks.
 
 ```bash
 cd policy/<POLICY>

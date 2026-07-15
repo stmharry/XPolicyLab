@@ -46,7 +46,7 @@ if type deactivate >/dev/null 2>&1 && [[ -n "${VIRTUAL_ENV:-}" ]]; then
     deactivate || true
 fi
 unset VIRTUAL_ENV
-if [[ "${ckpt_name}" == "molmoact2_bimanual_yam" && "${policy_conda_env}" == "molmoact2" ]]; then
+if [[ "${ckpt_name}" == "molmoact2_bimanual_yam" && ( "${policy_conda_env}" == "molmoact2" || "${policy_conda_env}" == "uv" ) ]]; then
     policy_uv_env_path="${SCRIPT_DIR}/molmoact2"
 elif [[ "${policy_conda_env}" == "uv" || "${policy_conda_env}" == */* ]]; then
     if [[ "${policy_conda_env}" == "uv" ]]; then

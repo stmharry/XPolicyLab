@@ -69,15 +69,28 @@ find_robodojo_root() {
 }
 
 ensure_hf() {
-    if ! command -v hf >/dev/null 2>&1; then
+    HF_BIN=""
+    local candidate
+    for candidate in "$(command -v hf 2>/dev/null || true)" "${HOME}/.local/bin/hf"; do
+        if [[ -x "${candidate}" ]] && "${candidate}" cache verify --help >/dev/null 2>&1; then
+            HF_BIN="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${HF_BIN}" ]]; then
         echo "Installing the Hugging Face CLI..."
         curl -LsSf https://hf.co/cli/install.sh | bash -s
         export PATH="${HOME}/.local/bin:${PATH}"
+        HF_BIN="$(command -v hf)"
+    fi
+    if ! "${HF_BIN}" cache verify --help >/dev/null 2>&1; then
+        echo "Hugging Face CLI is too old; expected support for 'hf cache verify'." >&2
+        exit 1
     fi
     if [[ -n "${HF_TOKEN:-}" ]]; then
-        hf auth whoami >/dev/null
+        "${HF_BIN}" auth whoami >/dev/null
         echo "Hugging Face authentication accepted from HF_TOKEN."
-    elif hf auth whoami >/dev/null 2>&1; then
+    elif "${HF_BIN}" auth whoami >/dev/null 2>&1; then
         echo "Using the active Hugging Face CLI login."
     else
         echo "No Hugging Face login found; continuing with public read access."
@@ -92,7 +105,7 @@ ensure_hf
 export HF_XET_HIGH_PERFORMANCE="${HF_XET_HIGH_PERFORMANCE:-1}"
 
 if [[ "${DRY_RUN}" == true ]]; then
-    hf download \
+    "${HF_BIN}" download \
         "${REPO_ID}" \
         --revision "${REVISION}" \
         "${DOWNLOAD_INCLUDES[@]}" \
@@ -102,7 +115,7 @@ if [[ "${DRY_RUN}" == true ]]; then
 fi
 
 mkdir -p "${DESTINATION}"
-hf download \
+"${HF_BIN}" download \
     "${REPO_ID}" \
     --revision "${REVISION}" \
     "${DOWNLOAD_INCLUDES[@]}" \
@@ -128,14 +141,14 @@ printf '%s  %s\n' "${NORM_SHA256}" "${DESTINATION}/${NORM_RELATIVE_PATH}" | sha2
 
 if [[ "${PROFILE}" == "${YAM_PROFILE}" ]]; then
     printf '%s  %s\n' "${PARAMS_METADATA_SHA256}" "${DESTINATION}/params/_METADATA" | sha256sum --check --strict
-    hf cache verify \
+    "${HF_BIN}" cache verify \
         "${REPO_ID}" \
         --revision "${REVISION}" \
         --local-dir "${DESTINATION}" \
         --fail-on-missing-files
     echo "Prepared ${PROFILE}: ${DESTINATION}"
 else
-    hf cache verify \
+    "${HF_BIN}" cache verify \
         "${REPO_ID}" \
         --revision "${REVISION}" \
         --local-dir "${DESTINATION}"

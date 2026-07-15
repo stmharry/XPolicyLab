@@ -25,15 +25,28 @@ find_robodojo_root() {
 }
 
 ensure_hf() {
-    if ! command -v hf >/dev/null 2>&1; then
+    HF_BIN=""
+    local candidate
+    for candidate in "$(command -v hf 2>/dev/null || true)" "${HOME}/.local/bin/hf"; do
+        if [[ -x "${candidate}" ]] && "${candidate}" cache verify --help >/dev/null 2>&1; then
+            HF_BIN="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${HF_BIN}" ]]; then
         echo "Installing the Hugging Face CLI..."
         curl -LsSf https://hf.co/cli/install.sh | bash -s
         export PATH="${HOME}/.local/bin:${PATH}"
+        HF_BIN="$(command -v hf)"
+    fi
+    if ! "${HF_BIN}" cache verify --help >/dev/null 2>&1; then
+        echo "Hugging Face CLI is too old; expected support for 'hf cache verify'." >&2
+        exit 1
     fi
     if [[ -n "${HF_TOKEN:-}" ]]; then
-        hf auth whoami >/dev/null
+        "${HF_BIN}" auth whoami >/dev/null
         echo "Hugging Face authentication accepted from HF_TOKEN."
-    elif hf auth whoami >/dev/null 2>&1; then
+    elif "${HF_BIN}" auth whoami >/dev/null 2>&1; then
         echo "Using the active Hugging Face CLI login."
     else
         echo "No Hugging Face login found; continuing with public read access."
@@ -48,19 +61,19 @@ ensure_hf
 export HF_XET_HIGH_PERFORMANCE="${HF_XET_HIGH_PERFORMANCE:-1}"
 
 if [[ "${1:-}" == "--dry-run" ]]; then
-    hf download "${REPO_ID}" --revision "${REVISION}" --dry-run
+    "${HF_BIN}" download "${REPO_ID}" --revision "${REVISION}" --dry-run
     echo "Destination: ${DESTINATION}"
     exit 0
 fi
 
 mkdir -p "${DESTINATION}"
-hf download \
+"${HF_BIN}" download \
     "${REPO_ID}" \
     --revision "${REVISION}" \
     --local-dir "${DESTINATION}"
 
 printf '%s  %s\n' "${NORM_SHA256}" "${DESTINATION}/norm_stats.json" | sha256sum --check --strict
-hf cache verify \
+"${HF_BIN}" cache verify \
     "${REPO_ID}" \
     --revision "${REVISION}" \
     --local-dir "${DESTINATION}" \

@@ -82,9 +82,16 @@ class Pi05ArxContractTest(unittest.TestCase):
         self.assertNotIn("exit", comparison)
 
         self.assertIn("sha256sum --check --strict", source)
-        self.assertIn("hf cache verify", source)
+        self.assertIn('"${HF_BIN}" cache verify', source)
         self.assertIn('--revision "${REVISION}"', source)
         self.assertNotIn("--fail-on-extra-files", source)
+
+    def test_installer_targets_the_policy_venv_even_from_an_active_root_venv(self):
+        source = (Path(__file__).parent / "install.sh").read_text()
+
+        self.assertIn('POLICY_PYTHON="${OPENPI_ROOT}/.venv/bin/python"', source)
+        self.assertEqual(source.count('--python "${POLICY_PYTHON}"'), 2)
+        self.assertIn('"${POLICY_PYTHON}" -c "import XPolicyLab', source)
 
 
 class Pi05YamContractTest(unittest.TestCase):

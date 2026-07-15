@@ -43,6 +43,23 @@ bash install.sh
 source molmoact2/lerobot/.venv/bin/activate  # or pass `uv` as <policy_env>
 ```
 
+From a RoboDojo checkout, use the standardized setup and validation surfaces:
+
+```bash
+make policy-setup
+make preflight
+make preflight DEEP=true
+```
+
+For `molmoact2_bimanual_yam`, `prepare_eval_policy.sh` idempotently prepares
+the pinned public snapshot and runs `install.sh infer` for the original-HF
+runtime. `check_eval_policy.sh` is read-only. It checks the pinned inference
+source and uv environment, XPolicyLab/MolmoACT2/Transformers/Torch imports,
+CUDA, the physical GPU, YAM joint-action compatibility, the five checkpoint
+shards, and pinned lightweight hashes and metadata fields without loading the
+model. Local paths and non-public aliases warn when no pinned integrity profile
+exists.
+
 ### Bimanual YAM public baseline
 
 The checkpoint alias `molmoact2_bimanual_yam` is a fixed evaluation contract:

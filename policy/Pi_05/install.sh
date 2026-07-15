@@ -15,10 +15,11 @@ fi
 
 cd "${OPENPI_ROOT}"
 UV_LINK_MODE=copy GIT_LFS_SKIP_SMUDGE=1 uv sync --group lerobot
-UV_LINK_MODE=copy GIT_LFS_SKIP_SMUDGE=1 uv pip install -e .
+POLICY_PYTHON="${OPENPI_ROOT}/.venv/bin/python"
+UV_LINK_MODE=copy GIT_LFS_SKIP_SMUDGE=1 uv pip install --python "${POLICY_PYTHON}" -e .
 
-uv pip install -e "${XPOLICYLAB_ROOT}"
-uv run python -c "import XPolicyLab; print('XPolicyLab ok')"
+uv pip install --python "${POLICY_PYTHON}" -e "${XPOLICYLAB_ROOT}"
+"${POLICY_PYTHON}" -c "import XPolicyLab; print('XPolicyLab ok')"
 
 echo "[Pi_05] Installation finished."
 echo "[Pi_05] Activate: source ${OPENPI_ROOT}/.venv/bin/activate"
