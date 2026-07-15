@@ -101,7 +101,7 @@ install_infer_env() {
   fi
   UV_LINK_MODE=copy uv pip install -e "${XPOLICYLAB_ROOT}"
   "${MOLMOACT2_DIR}/.venv/bin/python" -c "import torch; x=torch.ones(1, device='cuda'); print('cuda tensor:', x, 'torch:', torch.__version__)"
-  "${MOLMOACT2_DIR}/.venv/bin/python" -c "import XPolicyLab; print('XPolicyLab original-HF inference adapter ok')"
+  "${MOLMOACT2_DIR}/.venv/bin/python" -c "import XPolicyLab, msgpack, msgpack_numpy; print('XPolicyLab original-HF inference adapter and WebSocket codec ok')"
   echo "推理环境就绪: ${MOLMOACT2_DIR}/.venv"
 }
 
