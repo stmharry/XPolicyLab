@@ -6,8 +6,9 @@ bench_name: null
 task_name: null
 env_cfg_type: null
 ckpt_name: null
-# Public alias: pi05_arx5_multitask_v1. The adapter expands it to pinned step
-# 55000 under ROBODOJO_STORAGE_ROOT and retains local/path checkpoint behavior.
+# Public aliases: pi05_arx5_multitask_v1 and pi05_yam_molmoact2. The adapter
+# expands each to a pinned snapshot under ROBODOJO_STORAGE_ROOT and retains
+# local/path checkpoint behavior.
 seed: null
 eval_batch: true
 

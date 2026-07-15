@@ -570,6 +570,40 @@ class TrainConfig:
 # Use `get_config` if you need to get a config by name in your code.
 _CONFIGS = [
     TrainConfig(
+        name="yam_pi05",
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=16),
+        data=LeRobotAlohaDataConfig(
+            repo_id="yam-bimanual-merged",
+            assets=AssetsConfig(asset_id="yam-bimanual-merged"),
+            use_delta_joint_actions=False,
+            adapt_to_pi=False,
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "cam_high": "observation.images.top",
+                                "cam_left_wrist": "observation.images.left",
+                                "cam_right_wrist": "observation.images.right",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "prompt",
+                        }
+                    )
+                ]
+            ),
+            base_config=DataConfig(prompt_from_task=True),
+        ),
+        policy_metadata={
+            "checkpoint_profile": "pi05_yam_molmoact2",
+            "embodiment_contract": "bimanual_yam",
+            "dataset_frame": "yam_molmoact2",
+            "action_type": "absolute_joint",
+            "action_horizon": 16,
+        },
+    ),
+    TrainConfig(
         name="pi05_arx5_multitask_v1",
         model=pi0_config.Pi0Config(pi05=True, action_horizon=50),
         data=LeRobotAlohaDataConfig(

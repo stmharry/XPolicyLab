@@ -11,16 +11,17 @@ import numpy as np
 from openpi.policies import policy_config as _policy_config
 from openpi.shared import normalize as _normalize
 from openpi.training import config as _config
-from XPolicyLab.policy.Pi_05.contract import (
-    PROFILE_NAME,
-    apply_checkpoint_profile,
-    checkpoint_to_robodojo,
-    robodojo_to_checkpoint,
-    validate_profile_checkpoint,
-    validate_robot_contract,
-)
 
 from XPolicyLab.model_template import ModelTemplate
+from XPolicyLab.policy.Pi_05.contract import (
+    apply_checkpoint_profile,
+    checkpoint_actions_to_robodojo,
+    is_public_checkpoint_profile,
+    robodojo_state_to_checkpoint,
+    validate_profile_camera_payload,
+    validate_profile_checkpoint,
+    validate_profile_runtime,
+)
 from XPolicyLab.utils.checkpoint_resolver import candidate_checkpoint_roots
 from XPolicyLab.utils.process_data import (
     decode_image_bit,
@@ -53,8 +54,9 @@ def _resolve_pi05_model_root(model_cfg: dict[str, Any]) -> Path:
     if not candidates:
         raise ValueError("ckpt_name or model_path is required for Pi_05.")
     checkpoint_root = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
-    if model_cfg.get("checkpoint_profile") == PROFILE_NAME:
-        validate_profile_checkpoint(checkpoint_root)
+    checkpoint_profile = model_cfg.get("checkpoint_profile")
+    if is_public_checkpoint_profile(checkpoint_profile):
+        validate_profile_checkpoint(checkpoint_root, checkpoint_profile)
         return checkpoint_root
     if not checkpoint_root.is_dir():
         return checkpoint_root
@@ -105,15 +107,9 @@ class Model(ModelTemplate):
             if self.model_cfg.get("env_cfg_type") is not None
             else None
         )
-        self.is_public_arx_profile = self.model_cfg.get("checkpoint_profile") == PROFILE_NAME
-        if self.is_public_arx_profile:
-            if self.action_type != "joint":
-                raise ValueError(f"{PROFILE_NAME} requires action_type='joint'.")
-            if self.model_cfg.get("env_cfg_type") != "arx_x5":
-                raise ValueError(f"{PROFILE_NAME} requires env_cfg_type='arx_x5'.")
-            if self.robot_action_dim_info is None:
-                raise ValueError(f"{PROFILE_NAME} requires env_cfg_type='arx_x5'.")
-            validate_robot_contract(self.robot_action_dim_info)
+        self.checkpoint_profile = self.model_cfg.get("checkpoint_profile")
+        self.is_public_checkpoint_profile = is_public_checkpoint_profile(self.checkpoint_profile)
+        validate_profile_runtime(self.model_cfg, self.robot_action_dim_info)
         self.observation_window: dict[str, Any] | None = None
         self._latest_env_idx_list: list[int] = [0]
 
@@ -140,9 +136,10 @@ class Model(ModelTemplate):
     def update_obs_batch(self, obs_list):
         self._latest_env_idx_list = [obs.get("env_idx", index) for index, obs in enumerate(obs_list)]
         encoded_obs_list = [encode_obs(obs, self.action_type, self.robot_action_dim_info) for obs in obs_list]
-        if self.is_public_arx_profile:
+        if self.is_public_checkpoint_profile:
             for encoded_obs in encoded_obs_list:
-                encoded_obs["state"] = robodojo_to_checkpoint(encoded_obs["state"])
+                validate_profile_camera_payload(self.model_cfg, encoded_obs["images"])
+                encoded_obs["state"] = robodojo_state_to_checkpoint(self.model_cfg, encoded_obs["state"])
         self.observation_window = stack_obs(encoded_obs_list)
 
     def get_action(self, **kwargs):
@@ -160,8 +157,8 @@ class Model(ModelTemplate):
         for batch_index, _ in enumerate(env_idx_list):
             single_observation = slice_stacked_obs(self.observation_window, batch_index)
             actions = np.asarray(self.policy.infer(single_observation, **kwargs)["actions"], dtype=np.float32)
-            if self.is_public_arx_profile:
-                actions = checkpoint_to_robodojo(actions)
+            if self.is_public_checkpoint_profile:
+                actions = checkpoint_actions_to_robodojo(self.model_cfg, actions)
             if self.robot_action_dim_info is None:
                 action_list.append(actions)
             else:
@@ -252,7 +249,7 @@ def extract_image(observation, candidate_names):
 
 
 def ensure_chw_uint8(image):
-    if isinstance(image, (bytes, bytearray, memoryview)):
+    if isinstance(image, bytes | bytearray | memoryview):
         image = decode_compressed_image(np.frombuffer(bytes(image), dtype=np.uint8))
 
     image = np.asarray(image)

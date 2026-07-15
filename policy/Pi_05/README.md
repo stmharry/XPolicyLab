@@ -73,6 +73,34 @@ neither gate is optional. RoboDojo grippers use `[0,1]`; the adapter maps them t
 units with `p=-0.01+0.054g` before normalization and reverses that mapping on
 predicted actions.
 
+### Bimanual YAM MolmoAct2 fine-tune
+
+The checkpoint alias `pi05_yam_molmoact2` pins
+[`robocurve/pi05-yam-molmoact2`](https://huggingface.co/robocurve/pi05-yam-molmoact2)
+at revision `df991e11e8f6540098338c56342b1143fac5b952`. It requires the
+`bimanual_yam` embodiment and joint actions, consumes the canonical top, left-
+wrist, and right-wrist cameras, and predicts and executes all 16 absolute 14D
+actions in each chunk. The adapter reconstructs the released `yam_pi05`
+OpenPI inference config, loads the `yam-bimanual-merged` quantile statistics,
+and shares the `yam_molmoact2` joint-frame bridge with MolmoACT2.
+
+```bash
+cd XPolicyLab/policy/Pi_05
+bash prepare_checkpoint.sh pi05_yam_molmoact2
+bash install.sh
+bash setup_eval_policy_server.sh \
+  RoboDojo general_pickup pi05_yam_molmoact2 bimanual_yam joint 0 \
+  0 uv 6000 0.0.0.0
+```
+
+The complete pinned snapshot is stored under
+`${ROBODOJO_STORAGE_ROOT:-<robodojo>/.robodojo}/model_weights/Pi_05/pi05_yam_molmoact2/df991e11e8f6540098338c56342b1143fac5b952`.
+Preparation verifies the Hub manifest, requires every remote file, and checks
+the released normalization and Orbax metadata hashes. The checkpoint profile
+is independent of scene selection: `molmo_yam` is the recommended released
+workspace for matched evaluation, while another compatible scene can be
+selected without changing the embodiment or checkpoint contract.
+
 ## Demo Data Processing
 
 What it does: prepares RoboDojo demonstration data for policy training. The output name should match the training run identity so `train.sh` can find it.
