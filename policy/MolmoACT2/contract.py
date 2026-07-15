@@ -6,7 +6,20 @@ from typing import Any
 
 import numpy as np
 
+from XPolicyLab.utils import bimanual_yam_contract as _yam, yam_molmoact2_frame as _yam_frame
 from XPolicyLab.utils.robodojo_paths import model_weight_root
+
+CAMERA_KEYS = _yam.CAMERA_KEYS
+CAMERA_SHAPE = _yam.CAMERA_SHAPE
+GRIPPER_INDICES = _yam.GRIPPER_INDICES
+STATE_DIM = _yam.STATE_DIM
+validate_camera_payload = _yam.validate_camera_payload
+validate_environment = _yam.validate_environment
+validate_robot_contract = _yam.validate_robot_contract
+validate_state = _yam.validate_state
+YAM_JOINT_5_INDICES = _yam_frame.JOINT_SIGN_INDICES
+checkpoint_actions_to_simulator = _yam_frame.dataset_to_simulator
+simulator_state_to_checkpoint = _yam_frame.simulator_to_dataset
 
 PROFILE_NAME = "molmoact2_bimanual_yam"
 SOURCE_REPOSITORY = "https://github.com/allenai/molmoact2.git"
@@ -14,14 +27,9 @@ SOURCE_REVISION = "c2282820f9b188b60e66ea1636b3efd81c45cbb4"
 HF_REPO_ID = "allenai/MolmoAct2-BimanualYAM"
 HF_REVISION = "8dcbed66f2380e4393189c303ea72488eb9e63c2"
 NORM_TAG = "yam_dual_molmoact2"
-STATE_DIM = 14
 PREDICTED_HORIZON = 30
 EXECUTED_HORIZON = 25
 FLOW_STEPS = 10
-CAMERA_KEYS = ("cam_high", "cam_left_wrist", "cam_right_wrist")
-CAMERA_SHAPE = (3, 360, 640)
-GRIPPER_INDICES = (6, 13)
-YAM_JOINT_5_INDICES = (4, 11)
 
 
 def checkpoint_path() -> str:
@@ -50,6 +58,8 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
             "warmup_runs": 3,
             "predicted_horizon": PREDICTED_HORIZON,
             "actions_per_chunk": EXECUTED_HORIZON,
+            "embodiment_contract": "bimanual_yam",
+            "dataset_frame": "yam_molmoact2",
         }
     )
     return cfg
@@ -64,73 +74,9 @@ def uses_public_yam_joint_sign_bridge(model_cfg: dict[str, Any]) -> bool:
     )
 
 
-def _negate_yam_joint_5(values: Any, *, value_name: str) -> np.ndarray:
-    """Return a copy with each arm's ``dof_joint5`` sign negated."""
-
-    result = np.array(values, copy=True)
-    if result.ndim < 1 or result.shape[-1] != STATE_DIM:
-        raise ValueError(f"{value_name} must end in dimension {STATE_DIM}, got shape {result.shape}.")
-    result[..., list(YAM_JOINT_5_INDICES)] = -result[..., list(YAM_JOINT_5_INDICES)]
-    return result
-
-
-def simulator_state_to_checkpoint(state: Any) -> np.ndarray:
-    """Map RoboDojo YAM state into the public checkpoint's joint convention."""
-
-    return _negate_yam_joint_5(state, value_name="YAM simulator state")
-
-
-def checkpoint_actions_to_simulator(actions: Any) -> np.ndarray:
-    """Map public-checkpoint YAM actions into RoboDojo's joint convention."""
-
-    return _negate_yam_joint_5(actions, value_name="YAM checkpoint actions")
-
-
-def validate_robot_contract(robot_action_dim_info: dict[str, Any]) -> None:
-    arm_dims = list(robot_action_dim_info.get("arm_dim", ()))
-    gripper_dims = list(robot_action_dim_info.get("ee_dim", ()))
-    if arm_dims != [6, 6] or gripper_dims != [1, 1]:
-        raise ValueError(
-            f"MolmoAct2 Bimanual YAM requires [6,1,6,1] dimensions; got arm_dim={arm_dims}, ee_dim={gripper_dims}."
-        )
-
-
-def validate_state(state: Any) -> np.ndarray:
-    result = np.asarray(state, dtype=np.float32).reshape(-1)
-    if result.shape != (STATE_DIM,):
-        raise ValueError(f"YAM state must have shape ({STATE_DIM},), got {result.shape}.")
-    if not np.isfinite(result).all():
-        raise ValueError("YAM state contains non-finite values.")
-    grippers = result[list(GRIPPER_INDICES)]
-    if np.any(grippers < 0.0) or np.any(grippers > 1.0):
-        raise ValueError(f"YAM grippers must be normalized to [0,1], got {grippers.tolist()}.")
-    return result
-
-
-def validate_camera_payload(images: dict[str, Any]) -> None:
-    if tuple(images) != CAMERA_KEYS:
-        raise ValueError(
-            f"MolmoAct2 camera order must be cam_high, cam_left_wrist, cam_right_wrist; got {tuple(images)}."
-        )
-    for key in CAMERA_KEYS:
-        image = np.asarray(images[key])
-        if image.shape != CAMERA_SHAPE or image.dtype != np.uint8:
-            raise ValueError(
-                f"{key} must be uint8 CHW with shape {CAMERA_SHAPE}, got dtype={image.dtype}, shape={image.shape}."
-            )
-
-
 def validate_and_select_actions(actions: Any) -> np.ndarray:
-    result = np.asarray(actions, dtype=np.float32)
-    expected = (PREDICTED_HORIZON, STATE_DIM)
-    if result.shape != expected:
-        raise ValueError(f"MolmoAct2 must return actions with shape {expected}, got {result.shape}.")
-    if not np.isfinite(result).all():
-        raise ValueError("MolmoAct2 returned non-finite actions.")
-
-    result = result[:EXECUTED_HORIZON].copy()
-    grippers = result[:, list(GRIPPER_INDICES)]
-    if np.any(grippers < -0.05) or np.any(grippers > 1.05):
-        raise ValueError("MolmoAct2 returned grippers outside the normalized YAM contract.")
-    result[:, list(GRIPPER_INDICES)] = np.clip(grippers, 0.0, 1.0)
-    return result
+    return _yam.validate_action_chunk(
+        actions,
+        predicted_horizon=PREDICTED_HORIZON,
+        executed_horizon=EXECUTED_HORIZON,
+    )

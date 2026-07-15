@@ -68,12 +68,17 @@ class MolmoYamContractTest(unittest.TestCase):
         self.assertEqual(cfg["dtype"], "float32")
         self.assertTrue(cfg["enable_inference_cuda_graph"])
         self.assertEqual(cfg["warmup_runs"], 3)
+        self.assertEqual(cfg["embodiment_contract"], "bimanual_yam")
+        self.assertEqual(cfg["dataset_frame"], "yam_molmoact2")
         self.assertEqual(
             cfg["pretrained_path"],
             f"/runtime/model_weights/MolmoACT2/{contract.PROFILE_NAME}/{contract.HF_REVISION}",
         )
 
     def test_robot_state_camera_and_action_contract(self):
+        contract.validate_environment("bimanual_yam")
+        with self.assertRaisesRegex(ValueError, "env_cfg_type"):
+            contract.validate_environment("arx_x5")
         contract.validate_robot_contract({"arm_dim": [6, 6], "ee_dim": [1, 1]})
         state = np.zeros(14, dtype=np.float32)
         state[[6, 13]] = [1.0, 0.0]

@@ -31,6 +31,7 @@ from XPolicyLab.policy.MolmoACT2.contract import (
     uses_public_yam_joint_sign_bridge,
     validate_and_select_actions,
     validate_camera_payload,
+    validate_environment,
     validate_robot_contract,
     validate_state,
 )
@@ -285,6 +286,7 @@ class Model(ModelTemplate):
         env_cfg = self.model_cfg.get("env_cfg") or self.model_cfg.get("env_cfg_type")
         self.robot_action_dim_info = get_robot_action_dim_info(env_cfg) if env_cfg is not None else None
         if self.backend == "original_hf":
+            validate_environment(env_cfg)
             if self.robot_action_dim_info is None:
                 raise ValueError("The Bimanual YAM profile requires env_cfg_type.")
             validate_robot_contract(self.robot_action_dim_info)
