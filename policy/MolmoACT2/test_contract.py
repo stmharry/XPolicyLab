@@ -95,7 +95,7 @@ class MolmoYamContractTest(unittest.TestCase):
 
         selected = policy.predict(payload)
 
-        np.testing.assert_array_equal(selected[:, 0], np.full(25, 2.0))
+        np.testing.assert_array_equal(selected[:, 0], np.full(30, 2.0))
         self.assertEqual(policy.last_candidate_scores, (0.0, 1.0, 2.0))
         policy.reset()
         self.assertEqual(policy.last_candidate_scores, ())
@@ -111,7 +111,7 @@ class MolmoYamContractTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": "/runtime"}):
             cfg = contract.apply_checkpoint_profile({"ckpt_name": contract.PROFILE_NAME})
         self.assertEqual(cfg["checkpoint_backend"], "original_hf")
-        self.assertEqual(cfg["actions_per_chunk"], 25)
+        self.assertEqual(cfg["actions_per_chunk"], 30)
         self.assertEqual(cfg["predicted_horizon"], 30)
         self.assertEqual(cfg["num_steps"], 10)
         self.assertEqual(cfg["dtype"], "float32")
@@ -142,9 +142,9 @@ class MolmoYamContractTest(unittest.TestCase):
         actions[:, 6] = 1.02
         actions[:, 13] = -0.02
         selected = contract.validate_and_select_actions(actions)
-        self.assertEqual(selected.shape, (25, 14))
-        np.testing.assert_array_equal(selected[:, 6], np.ones(25))
-        np.testing.assert_array_equal(selected[:, 13], np.zeros(25))
+        self.assertEqual(selected.shape, (30, 14))
+        np.testing.assert_array_equal(selected[:, 6], np.ones(30))
+        np.testing.assert_array_equal(selected[:, 13], np.zeros(30))
 
     def test_invalid_shapes_and_nonfinite_actions_fail(self):
         with self.assertRaisesRegex(ValueError, "shape"):
