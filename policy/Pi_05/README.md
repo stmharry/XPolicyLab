@@ -44,7 +44,7 @@ source openpi/.venv/bin/activate
 From a RoboDojo checkout, use the standardized setup and validation surfaces:
 
 ```bash
-make policy-setup
+make setup
 make preflight
 make preflight DEEP=true
 ```

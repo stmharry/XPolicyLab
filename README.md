@@ -242,7 +242,7 @@ must never install, download, load a model, start a server, or publish.
 The check hook exits `0` when all supported checks pass, `3` when supported
 checks pass but some policy-specific validation is unavailable, and another
 nonzero status on failure. Diagnostics use `PASS`, `WARN`, or `FAIL`, and
-failures include an actionable remediation such as `make policy-setup`.
+failures include an actionable remediation such as `make setup`.
 Adapters without either hook remain compatible with RoboDojo's generic runtime,
 import, and explicit-checkpoint checks.
 

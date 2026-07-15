@@ -46,7 +46,7 @@ source molmoact2/lerobot/.venv/bin/activate  # or pass `uv` as <policy_env>
 From a RoboDojo checkout, use the standardized setup and validation surfaces:
 
 ```bash
-make policy-setup
+make setup
 make preflight
 make preflight DEEP=true
 ```

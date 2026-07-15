@@ -22,7 +22,7 @@ warning=false
 
 pass() { echo "PASS $1: $2"; }
 warn() { echo "WARN $1: $2"; warning=true; }
-fail() { echo "FAIL $1: $2" >&2; echo "REMEDIATION: make policy-setup" >&2; exit 1; }
+fail() { echo "FAIL $1: $2" >&2; echo "REMEDIATION: make setup" >&2; exit 1; }
 
 [[ "${seed}" =~ ^[0-9]+$ ]] || fail "arguments" "seed must be a nonnegative integer, got ${seed}"
 [[ "${gpu}" =~ ^[0-9]+$ ]] || fail "gpu" "GPU index must be a nonnegative integer, got ${gpu}"
