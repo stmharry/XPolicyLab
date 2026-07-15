@@ -28,7 +28,12 @@ YAM_NORM_ASSET_ID = "yam-bimanual-merged"
 ACTION_DIM = 14
 ARX_ACTION_HORIZON = 50
 ACTION_HORIZON = ARX_ACTION_HORIZON
+# The released YAM checkpoint predicts 16 actions at 30 Hz. Replan after the
+# first half of each chunk so closed-loop observations are incorporated every
+# 0.267 seconds instead of playing the full 0.533-second prediction open-loop.
 YAM_ACTION_HORIZON = 16
+YAM_EXECUTED_HORIZON = 8
+YAM_CONTROL_HZ = 30
 GRIPPER_INDICES = (6, 13)
 GRIPPER_OFFSET = -0.01
 GRIPPER_SPAN = 0.054
@@ -89,7 +94,9 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
                 "embodiment_contract": _yam.ENVIRONMENT_NAME,
                 "dataset_frame": "yam_molmoact2",
                 "predicted_horizon": YAM_ACTION_HORIZON,
-                "actions_per_chunk": YAM_ACTION_HORIZON,
+                "executed_horizon": YAM_EXECUTED_HORIZON,
+                "actions_per_chunk": YAM_EXECUTED_HORIZON,
+                "control_hz": YAM_CONTROL_HZ,
             }
         )
     return cfg
@@ -119,6 +126,22 @@ def validate_profile_runtime(
     elif profile_name == YAM_PROFILE_NAME:
         _yam.validate_environment(env_cfg_type)
         _yam.validate_robot_contract(robot_action_dim_info)
+        validate_yam_timing_contract(model_cfg)
+
+
+def validate_yam_timing_contract(model_cfg: dict[str, Any]) -> None:
+    """Require the public YAM profile's prediction and execution cadence."""
+
+    expected = {
+        "predicted_horizon": YAM_ACTION_HORIZON,
+        "executed_horizon": YAM_EXECUTED_HORIZON,
+        "actions_per_chunk": YAM_EXECUTED_HORIZON,
+        "control_hz": YAM_CONTROL_HZ,
+    }
+    for key, expected_value in expected.items():
+        actual = model_cfg.get(key, expected_value)
+        if isinstance(actual, bool) or actual != expected_value:
+            raise ValueError(f"{YAM_PROFILE_NAME} requires {key}={expected_value}; got {actual!r}.")
 
 
 def validate_robot_contract(robot_action_dim_info: dict[str, Any]) -> None:
@@ -190,10 +213,11 @@ def checkpoint_actions_to_robodojo(model_cfg: dict[str, Any], values: Any) -> np
     if profile_name == ARX_PROFILE_NAME:
         return _checkpoint_arx_to_robodojo(values)
     if profile_name == YAM_PROFILE_NAME:
+        validate_yam_timing_contract(model_cfg)
         actions = _yam.validate_action_chunk(
             values,
             predicted_horizon=YAM_ACTION_HORIZON,
-            executed_horizon=YAM_ACTION_HORIZON,
+            executed_horizon=YAM_EXECUTED_HORIZON,
         )
         return _yam_frame.dataset_to_simulator(actions)
     return np.asarray(values, dtype=np.float32)

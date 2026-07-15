@@ -95,10 +95,14 @@ The checkpoint alias `pi05_yam_molmoact2` pins
 [`robocurve/pi05-yam-molmoact2`](https://huggingface.co/robocurve/pi05-yam-molmoact2)
 at revision `df991e11e8f6540098338c56342b1143fac5b952`. It requires the
 `bimanual_yam` embodiment and joint actions, consumes the canonical top, left-
-wrist, and right-wrist cameras, and predicts and executes all 16 absolute 14D
-actions in each chunk. The adapter reconstructs the released `yam_pi05`
-OpenPI inference config, loads the `yam-bimanual-merged` quantile statistics,
-and shares the `yam_molmoact2` joint-frame bridge with MolmoACT2.
+wrist, and right-wrist cameras, and predicts 16 absolute 14D actions at 30 Hz.
+It executes the first 8 actions before replanning from a fresh observation,
+following
+[OpenPI's half-chunk broker pattern](https://github.com/Physical-Intelligence/openpi/blob/main/src/openpi/policies/policy_test.py)
+while retaining the checkpoint's full `(16, 14)` prediction contract. The
+adapter reconstructs the released `yam_pi05` OpenPI inference config, loads the
+`yam-bimanual-merged` quantile statistics, and shares the `yam_molmoact2`
+joint-frame bridge with MolmoACT2.
 
 ```bash
 cd XPolicyLab/policy/Pi_05

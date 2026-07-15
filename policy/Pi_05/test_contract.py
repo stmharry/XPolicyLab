@@ -21,6 +21,7 @@ class Pi05ArxContractTest(unittest.TestCase):
         self.assertEqual(cfg["checkpoint_num"], 55000)
         self.assertEqual(cfg["train_config_name"], contract.TRAIN_CONFIG_NAME)
         self.assertEqual(cfg["actions_per_chunk"], 50)
+        self.assertNotIn("executed_horizon", cfg)
         self.assertEqual(
             cfg["model_path"],
             f"/runtime/model_weights/Pi_05/{contract.PROFILE_NAME}/{contract.HF_REVISION}/checkpoints/55000",
@@ -115,7 +116,9 @@ class Pi05YamContractTest(unittest.TestCase):
         )
         self.assertEqual(cfg["train_config_name"], "yam_pi05")
         self.assertEqual(cfg["predicted_horizon"], 16)
-        self.assertEqual(cfg["actions_per_chunk"], 16)
+        self.assertEqual(cfg["executed_horizon"], 8)
+        self.assertEqual(cfg["actions_per_chunk"], 8)
+        self.assertEqual(cfg["control_hz"], 30)
         self.assertNotIn("checkpoint_num", cfg)
 
     def test_profile_requires_canonical_yam_joint_runtime(self):
@@ -133,6 +136,15 @@ class Pi05YamContractTest(unittest.TestCase):
             contract.validate_profile_runtime({**cfg, "env_cfg_type": "arx_x5"}, robot_info)
         with self.assertRaisesRegex(ValueError, "action_type='joint'"):
             contract.validate_profile_runtime({**cfg, "action_type": "ee"}, robot_info)
+
+        for key, value in (
+            ("predicted_horizon", 15),
+            ("executed_horizon", 16),
+            ("actions_per_chunk", 16),
+            ("control_hz", 20),
+        ):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, key):
+                contract.validate_profile_runtime({**cfg, key: value}, robot_info)
 
     def test_profile_requires_exact_snapshot_params_and_norm_stats(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -162,12 +174,28 @@ class Pi05YamContractTest(unittest.TestCase):
         checkpoint_actions = np.tile(checkpoint_state, (16, 1))
         checkpoint_actions[0, [6, 13]] = [-0.01, 1.01]
         actions = contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions)
-        self.assertEqual(actions.shape, (16, 14))
+        self.assertEqual(actions.shape, (8, 14))
         np.testing.assert_allclose(actions[1, [4, 11]], [0.25, -0.75])
         np.testing.assert_allclose(actions[0, [6, 13]], [0.0, 1.0])
 
         with self.assertRaisesRegex(ValueError, r"\(16, 14\)"):
             contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions[:-1])
+
+    def test_timing_preflight_matches_robodojo_profiles(self):
+        from XPolicyLab.policy.Pi_05.preflight_timing import validate_timing_chain
+
+        root = Path(__file__).resolve().parents[3]
+        self.assertEqual(
+            validate_timing_chain(root),
+            {
+                "predicted_horizon": 16,
+                "executed_horizon": 8,
+                "control_hz": 30,
+                "physics_hz": 240,
+                "ticks_per_action": 8,
+                "camera_count": 3,
+            },
+        )
 
     def test_camera_contract_is_only_enforced_for_yam_profile(self):
         images = {

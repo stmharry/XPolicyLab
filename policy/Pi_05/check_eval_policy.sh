@@ -108,6 +108,16 @@ if [[ -n "${SNAPSHOT}" ]]; then
     fi
     pass "checkpoint" "pinned Orbax params and quantile-stat integrity checks passed"
 fi
+if [[ "${checkpoint}" == "pi05_yam_molmoact2" ]]; then
+    if ! timing_detail=$(env \
+        CUDA_VISIBLE_DEVICES="${gpu}" \
+        PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
+        "${PYTHON_BIN}" -m XPolicyLab.policy.Pi_05.preflight_timing \
+        --root "${ROBODOJO_ROOT_RESOLVED}" 2>&1); then
+        fail "timing" "${timing_detail}"
+    fi
+    pass "timing" "${timing_detail}"
+fi
 pass "contract" "dataset=${dataset} task=${task} env=${environment} action=${action}"
 
 if [[ "${warning}" == true ]]; then exit 3; fi
