@@ -36,6 +36,9 @@ class MolmoYamContractTest(unittest.TestCase):
         policy._bridge_yam_joint_5_sign = False
         policy._seed = 17
         policy._generator = torch.Generator(device="cpu").manual_seed(policy._seed)
+        policy._candidate_generators = [policy._generator]
+        policy._candidate_count = 1
+        policy.last_candidate_scores = ()
         policy._lock = threading.Lock()
         payload = {
             "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
@@ -54,6 +57,52 @@ class MolmoYamContractTest(unittest.TestCase):
         self.assertTrue(all(generator is policy._generator for generator in policy.model.generators))
         self.assertFalse(np.array_equal(first, second))
         np.testing.assert_array_equal(first, replayed)
+
+    def test_original_hf_policy_selects_most_active_deterministic_candidate(self):
+        class FakeModel:
+            def predict_action(self, **kwargs):
+                generator = kwargs["generator"]
+                actions = torch.zeros((30, 14))
+                actions[:, 0] = float(generator.initial_seed() - 17)
+                actions[:, contract.GRIPPER_INDICES] = 0.5
+                return SimpleNamespace(actions=actions)
+
+        policy = _OriginalHFPolicy.__new__(_OriginalHFPolicy)
+        policy.processor = object()
+        policy.model = FakeModel()
+        policy.norm_tag = contract.NORM_TAG
+        policy.num_steps = contract.FLOW_STEPS
+        policy.enable_depth_reasoning = False
+        policy.enable_cuda_graph = False
+        policy._bridge_yam_joint_5_sign = False
+        policy._seed = 17
+        policy._candidate_count = 3
+        policy._candidate_generators = [
+            torch.Generator(device="cpu").manual_seed(policy._seed + candidate_index)
+            for candidate_index in range(policy._candidate_count)
+        ]
+        policy._generator = policy._candidate_generators[0]
+        policy.last_candidate_scores = ()
+        policy._lock = threading.Lock()
+        payload = {
+            "state": np.zeros(contract.STATE_DIM, dtype=np.float32),
+            "images": {
+                camera: np.zeros(contract.CAMERA_SHAPE, dtype=np.uint8)
+                for camera in contract.CAMERA_KEYS
+            },
+            "prompt": "put the object into the box",
+        }
+
+        selected = policy.predict(payload)
+
+        np.testing.assert_array_equal(selected[:, 0], np.full(25, 2.0))
+        self.assertEqual(policy.last_candidate_scores, (0.0, 1.0, 2.0))
+        policy.reset()
+        self.assertEqual(policy.last_candidate_scores, ())
+        self.assertEqual(
+            [generator.initial_seed() for generator in policy._candidate_generators],
+            [17, 18, 19],
+        )
 
     def test_profile_alias_is_pinned_and_other_names_are_unchanged(self):
         original = {"ckpt_name": "local_run", "actions_per_chunk": 7}
