@@ -1,0 +1,29 @@
+schema_version: 1
+profiles:
+  folding_final:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: openarm_lerobot
+      state: {representation: joint, dimension: 16, frame: openarm_degrees}
+      action: {representation: joint, dimension: 16, frame: openarm_degrees, rate_hz: 30}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: base, accepted_resolutions: [[640, 480]]}
+          - {role: left_wrist, accepted_resolutions: [[1280, 720]]}
+          - {role: right_wrist, accepted_resolutions: [[1280, 720]]}
+    adapter:
+      state_transform: openarm_lerobot_degrees_v1
+      action_transform: openarm_rtc_interpolated_v1
+      image_transform: checkpoint_preprocessor
+    execution:
+      strategy: adaptive
+      prediction_horizon: 30
+      nominal_execution_horizon: 20
+      maximum_execution_horizon: 30
+    training:
+      dataset_id: lerobot-data-collection/folding_final
+      setup_id: openarm_lerobot
+      scene_id: robodojo_default
+      reference_environments: [openarm_lerobot]
+      reference_scenes: [default]

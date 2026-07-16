@@ -1,0 +1,29 @@
+schema_version: 1
+profiles:
+  molmoact2_bimanual_yam:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: bimanual_yam
+      state: {representation: joint, dimension: 14, frame: yam_molmoact2}
+      action: {representation: joint, dimension: 14, frame: yam_molmoact2, rate_hz: 30}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: left_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: right_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+    adapter:
+      state_transform: yam_molmoact2_joint_sign_v1
+      action_transform: yam_molmoact2_joint_sign_v1
+      image_transform: identity
+    execution:
+      strategy: full_chunk
+      prediction_horizon: 30
+      nominal_execution_horizon: 30
+      maximum_execution_horizon: 30
+    training:
+      dataset_id: allenai/MolmoAct2-BimanualYAM
+      setup_id: yam_molmoact2
+      scene_id: molmoact2_tabletop
+      reference_environments: [bimanual_yam_molmoact2]
+      reference_scenes: [default, molmo_yam]

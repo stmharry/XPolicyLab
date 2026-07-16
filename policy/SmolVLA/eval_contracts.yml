@@ -1,0 +1,29 @@
+schema_version: 1
+profiles:
+  smolvla-aloha-bimanual:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: arx_x5
+      state: {representation: joint, dimension: 14, frame: robodojo_joint}
+      action: {representation: joint, dimension: 14, frame: robodojo_joint, rate_hz: 25}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: []}
+          - {role: left_wrist, accepted_resolutions: []}
+          - {role: right_wrist, accepted_resolutions: []}
+    adapter:
+      state_transform: robodojo_pack_v1
+      action_transform: robodojo_unpack_v1
+      image_transform: checkpoint_preprocessor
+    execution:
+      strategy: full_chunk
+      prediction_horizon: 50
+      nominal_execution_horizon: 50
+      maximum_execution_horizon: 50
+    training:
+      dataset_id: DaMiTian/smolvla-aloha-bimanual
+      setup_id: aloha_bimanual
+      scene_id: null
+      reference_environments: []
+      reference_scenes: []

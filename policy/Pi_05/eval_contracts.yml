@@ -1,0 +1,83 @@
+schema_version: 1
+profiles:
+  pi05_arx5_multitask_v1:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: arx_x5
+      state: {representation: joint, dimension: 14, frame: arx5_physical}
+      action: {representation: joint, dimension: 14, frame: arx5_physical, rate_hz: 25}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: []}
+          - {role: left_wrist, accepted_resolutions: []}
+          - {role: right_wrist, accepted_resolutions: []}
+    adapter:
+      state_transform: arx5_gripper_physical_v1
+      action_transform: arx5_gripper_physical_v1
+      image_transform: checkpoint_preprocessor
+    execution:
+      strategy: full_chunk
+      prediction_horizon: 50
+      nominal_execution_horizon: 50
+      maximum_execution_horizon: 50
+    training:
+      dataset_id: pravsels/pi05-arx5-multitask-v1
+      setup_id: arx_x5_sim
+      scene_id: robodojo_default
+      reference_environments: [arx_x5]
+      reference_scenes: [default]
+  pi05_yam_molmoact2:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: bimanual_yam
+      state: {representation: joint, dimension: 14, frame: yam_molmoact2}
+      action: {representation: joint, dimension: 14, frame: yam_molmoact2, rate_hz: 30}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: left_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: right_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+    adapter:
+      state_transform: yam_molmoact2_joint_sign_v1
+      action_transform: yam_molmoact2_joint_sign_v1
+      image_transform: checkpoint_preprocessor
+    execution:
+      strategy: fixed_prefix
+      prediction_horizon: 16
+      nominal_execution_horizon: 8
+      maximum_execution_horizon: 8
+    training:
+      dataset_id: robocurve/pi05-yam-molmoact2
+      setup_id: yam_molmoact2
+      scene_id: molmoact2_tabletop
+      reference_environments: [bimanual_yam_molmoact2]
+      reference_scenes: [default, molmo_yam]
+  pi05_yam_abc_pickplace:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: bimanual_yam
+      state: {representation: joint, dimension: 14, frame: yam_lerobot}
+      action: {representation: joint, dimension: 14, frame: yam_lerobot, rate_hz: 30}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: left_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+          - {role: right_wrist, accepted_resolutions: [[640, 360], [640, 480]]}
+    adapter:
+      state_transform: yam_lerobot_absolute_v1
+      action_transform: yam_pickup_grasp_adaptation_v1
+      image_transform: center_crop_640x360_then_checkpoint_resize
+    execution:
+      strategy: adaptive
+      prediction_horizon: 50
+      nominal_execution_horizon: 8
+      maximum_execution_horizon: 50
+    training:
+      dataset_id: pztang/yam-abc-pickplace-safe-pi05-8gpu-m1
+      setup_id: yam_abc_pickplace
+      scene_id: moonlake_office
+      reference_environments: [bimanual_yam_moonlake_office]
+      reference_scenes: [moonlake_office]
