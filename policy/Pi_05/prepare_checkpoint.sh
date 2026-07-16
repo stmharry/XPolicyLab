@@ -186,7 +186,6 @@ else
     "${HF_BIN}" cache verify \
         "${REPO_ID}" \
         --revision "${REVISION}" \
-        --local-dir "${DESTINATION}" \
-        --fail-on-missing-files
+        --local-dir "${DESTINATION}"
     echo "Prepared ${PROFILE}: ${DESTINATION}"
 fi

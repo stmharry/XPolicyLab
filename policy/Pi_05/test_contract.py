@@ -414,6 +414,10 @@ class Pi05YamContractTest(unittest.TestCase):
         )
         self.assertIn('--include "model.safetensors"', source)
         self.assertNotIn('--include "checkpoints/**"', source)
+        # Only the complete MolmoAct2 snapshot requires the full remote
+        # manifest. The pickup profile deliberately selects root pretrained
+        # files and must not reject omitted training checkpoints.
+        self.assertEqual(source.count("--fail-on-missing-files"), 1)
 
     def test_lerobot_runtime_pins_official_openpi_transformers_branch(self):
         project = (Path(__file__).parent / "openpi" / "pyproject.toml").read_text()
