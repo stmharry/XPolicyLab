@@ -58,8 +58,8 @@ class PolicyEvalClientConfig:
     request_timeout_s: float = 120.0
     max_connect_attempts: int = 10
     connect_retry_delay_s: float = 5.0
-    ws_ping_interval_s: float = 20.0
-    ws_ping_timeout_s: float = 20.0
+    ws_ping_interval_s: float | None = 20.0
+    ws_ping_timeout_s: float | None = 20.0
     proxy: str | Literal[True] | None = None
 
 

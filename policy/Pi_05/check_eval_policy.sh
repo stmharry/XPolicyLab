@@ -62,7 +62,14 @@ if ! env CUDA_VISIBLE_DEVICES="${gpu}" PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${P
 fi
 pass "imports" "XPolicyLab and OpenPI runtime imports succeeded"
 
-STORAGE_ROOT="${ROBODOJO_STORAGE_ROOT:-${ROBODOJO_ROOT_RESOLVED}/.robodojo}"
+if [[ -n "${ROBODOJO_STORAGE_ROOT:-}" ]]; then
+    STORAGE_ROOT="${ROBODOJO_STORAGE_ROOT}"
+else
+    STORAGE_ROOT="$(
+        env PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
+            "${PYTHON_BIN}" -c 'from XPolicyLab.utils.robodojo_paths import storage_root; print(storage_root())'
+    )"
+fi
 LEROBOT_SNAPSHOT=""
 case "${checkpoint}" in
     pi05_arx5_multitask_v1)

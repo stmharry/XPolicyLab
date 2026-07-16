@@ -6,9 +6,10 @@ import tempfile
 import unittest
 from unittest import mock
 
+import jax
 import numpy as np
 
-from XPolicyLab.policy.Pi_05 import contract
+from XPolicyLab.policy.Pi_05 import contract, model as pi05_model
 
 
 class Pi05ArxContractTest(unittest.TestCase):
@@ -96,6 +97,51 @@ class Pi05ArxContractTest(unittest.TestCase):
 
 
 class Pi05YamContractTest(unittest.TestCase):
+    def test_model_episode_reset_delegates_to_policy_rng_reset(self):
+        instance = object.__new__(pi05_model.Model)
+        instance.observation_window = {"state": np.ones(1)}
+        instance._latest_env_idx_list = [3]
+        instance._pickup_gripper_hold_targets = np.zeros(2, dtype=np.float32)
+        instance.policy = mock.Mock()
+
+        instance.reset()
+
+        instance.policy.reset.assert_called_once_with()
+        self.assertIsNone(instance.observation_window)
+        self.assertEqual(instance._latest_env_idx_list, [0])
+        self.assertTrue(np.isnan(instance._pickup_gripper_hold_targets).all())
+
+    def test_openpi_factory_receives_evaluation_seed(self):
+        policy = object()
+        config = object()
+        norm_stats = object()
+        instance = object.__new__(pi05_model.Model)
+        with (
+            mock.patch.object(pi05_model, "_resolve_pi05_model_root", return_value=Path("/checkpoint")),
+            mock.patch.object(pi05_model._config, "get_config", return_value=config),
+            mock.patch.object(pi05_model._normalize, "load", return_value=norm_stats),
+            mock.patch.object(
+                pi05_model._policy_config,
+                "create_trained_policy",
+                return_value=policy,
+            ) as create_policy,
+        ):
+            loaded = instance.get_model(
+                {
+                    "train_config_name": contract.YAM_TRAIN_CONFIG_NAME,
+                    "repo_id": contract.YAM_NORM_ASSET_ID,
+                    "seed": 23,
+                }
+            )
+
+        self.assertIs(loaded, policy)
+        self.assertEqual(create_policy.call_args.args, (config, "/checkpoint"))
+        self.assertIs(create_policy.call_args.kwargs["norm_stats"], norm_stats)
+        np.testing.assert_array_equal(
+            jax.random.key_data(create_policy.call_args.kwargs["rng"]),
+            jax.random.key_data(jax.random.key(23)),
+        )
+
     def test_profile_alias_pins_snapshot_norm_asset_and_horizon(self):
         with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": "/runtime"}):
             cfg = contract.apply_checkpoint_profile(
@@ -119,7 +165,59 @@ class Pi05YamContractTest(unittest.TestCase):
         self.assertEqual(cfg["executed_horizon"], 8)
         self.assertEqual(cfg["actions_per_chunk"], 8)
         self.assertEqual(cfg["control_hz"], 30)
+        self.assertEqual(cfg["camera_input_contract"], contract.YAM_CAMERA_INPUT_CONTRACT)
         self.assertNotIn("checkpoint_num", cfg)
+
+    def test_yam_camera_contract_center_crops_moonlake_without_mutation(self):
+        cfg = contract.apply_checkpoint_profile(
+            {
+                "ckpt_name": contract.YAM_PROFILE_NAME,
+                "env_cfg_type": "bimanual_yam",
+                "action_type": "joint",
+            }
+        )
+        images = {}
+        originals = {}
+        for camera_index, camera in enumerate(("cam_high", "cam_left_wrist", "cam_right_wrist")):
+            rows = np.arange(480, dtype=np.uint16)[None, :, None]
+            channels = np.arange(3, dtype=np.uint16)[:, None, None]
+            image = np.broadcast_to(
+                (rows + 17 * channels + camera_index) % 256,
+                contract.YAM_MOONLAKE_CAMERA_SHAPE,
+            ).astype(np.uint8)
+            images[camera] = image
+            originals[camera] = image.copy()
+
+        prepared = contract.prepare_profile_camera_payload(cfg, images)
+
+        for camera in images:
+            self.assertEqual(prepared[camera].shape, contract.YAM_CHECKPOINT_CAMERA_SHAPE)
+            self.assertEqual(prepared[camera].dtype, np.uint8)
+            self.assertTrue(prepared[camera].flags.c_contiguous)
+            np.testing.assert_array_equal(
+                prepared[camera],
+                originals[camera][:, contract.YAM_MOONLAKE_CENTER_CROP, :],
+            )
+            np.testing.assert_array_equal(images[camera], originals[camera])
+
+    def test_yam_camera_contract_preserves_checkpoint_geometry(self):
+        cfg = contract.apply_checkpoint_profile(
+            {
+                "ckpt_name": contract.YAM_PROFILE_NAME,
+                "env_cfg_type": "bimanual_yam",
+                "action_type": "joint",
+            }
+        )
+        images = {
+            camera: np.full(contract.YAM_CHECKPOINT_CAMERA_SHAPE, index, dtype=np.uint8)
+            for index, camera in enumerate(("cam_high", "cam_left_wrist", "cam_right_wrist"))
+        }
+
+        prepared = contract.prepare_profile_camera_payload(cfg, images)
+
+        for camera in images:
+            np.testing.assert_array_equal(prepared[camera], images[camera])
+            self.assertTrue(prepared[camera].flags.c_contiguous)
 
     def test_profile_requires_canonical_yam_joint_runtime(self):
         cfg = contract.apply_checkpoint_profile(
@@ -212,6 +310,12 @@ class Pi05YamContractTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, r"\(16, 14\)"):
             contract.checkpoint_actions_to_robodojo(cfg, checkpoint_actions[:-1])
+
+    def test_yam_pi05_runtime_uses_quantile_normalization(self):
+        config_path = Path(__file__).parent / "openpi" / "src" / "openpi" / "training" / "config.py"
+        source = config_path.read_text(encoding="utf-8")
+
+        self.assertIn("use_quantile_norm=model_config.model_type != ModelType.PI0", source)
 
     def test_pickup_profile_uses_native_yam_frame_and_temporal_cadence(self):
         cfg = contract.apply_checkpoint_profile(

@@ -9,14 +9,12 @@ import flax.traverse_util
 import jax
 import jax.numpy as jnp
 import numpy as np
+from openpi import transforms as _transforms
+from openpi.models import model as _model
+from openpi.shared import array_typing as at, nnx_utils
 from openpi_client import base_policy as _base_policy
 import torch
 from typing_extensions import override
-
-from openpi import transforms as _transforms
-from openpi.models import model as _model
-from openpi.shared import array_typing as at
-from openpi.shared import nnx_utils
 
 BasePolicy: TypeAlias = _base_policy.BasePolicy
 
@@ -62,7 +60,18 @@ class Policy(BasePolicy):
         else:
             # JAX model setup
             self._sample_actions = nnx_utils.module_jit(model.sample_actions)
-            self._rng = rng or jax.random.key(0)
+            self._initial_rng = jax.random.key(0) if rng is None else rng
+            self._rng = self._initial_rng
+
+    def reset(self) -> None:
+        """Restore the inference RNG so episode results do not depend on ordering."""
+
+        if self._is_pytorch_model:
+            reset_model = getattr(self._model, "reset", None)
+            if callable(reset_model):
+                reset_model()
+            return
+        self._rng = self._initial_rng
 
     @override
     def infer(self, obs: dict, *, noise: np.ndarray | None = None) -> dict:  # type: ignore[misc]
