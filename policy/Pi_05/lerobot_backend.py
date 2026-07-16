@@ -1,8 +1,8 @@
-"""LeRobot PI0.5 inference for pinned YAM checkpoints."""
+"""Profile-driven LeRobot PI0.5 inference for pinned embodiments."""
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import dataclass, fields
 import json
 import logging
 from pathlib import Path
@@ -15,17 +15,18 @@ from openpi.shared import download as _download
 from safetensors.torch import load_file
 import torch
 
-from XPolicyLab.policy.Pi_05.contract import YAM_PICKUP_TASK_PROMPT
+from XPolicyLab.policy.Pi_05.contract import (
+    PIPER_PROFILE_NAME,
+    PIPER_ROBOT_TYPE,
+    PIPER_TASK_PROMPT,
+    YAM_PICKUP_PROFILE_NAME,
+    YAM_PICKUP_TASK_PROMPT,
+)
 
 _TOKENIZER_URI = "gs://big_vision/paligemma_tokenizer.model"
 _LEGACY_VISION_TOWER_PREFIX = "model.paligemma_with_expert.paligemma.model.vision_tower."
-_CAMERA_MAPPING = {
-    "cam_high": "observation.images.head",
-    "cam_left_wrist": "observation.images.wrist_left",
-    "cam_right_wrist": "observation.images.wrist_right",
-}
 _YAM_PICKUP_SOURCE_ASPECT = 16 / 9
-_ACTION_NAMES = (
+_YAM_ACTION_NAMES = (
     "left_shoulder_pan.pos",
     "left_shoulder_lift.pos",
     "left_elbow_flex.pos",
@@ -43,14 +44,77 @@ _ACTION_NAMES = (
 )
 
 
-def _load_config(checkpoint_root: Path):
+@dataclass(frozen=True)
+class LeRobotProfile:
+    name: str
+    camera_mapping: dict[str, str]
+    prompt: str
+    robot_type: str
+    action_feature_names: tuple[str, ...]
+    camera_shape: tuple[int, int, int] | None
+    source_aspect: float | None
+
+
+_PROFILES = {
+    YAM_PICKUP_PROFILE_NAME: LeRobotProfile(
+        name=YAM_PICKUP_PROFILE_NAME,
+        camera_mapping={
+            "cam_high": "observation.images.head",
+            "cam_left_wrist": "observation.images.wrist_left",
+            "cam_right_wrist": "observation.images.wrist_right",
+        },
+        prompt=YAM_PICKUP_TASK_PROMPT,
+        robot_type="yam_follower_bimanual",
+        action_feature_names=_YAM_ACTION_NAMES,
+        camera_shape=None,
+        source_aspect=_YAM_PICKUP_SOURCE_ASPECT,
+    ),
+    PIPER_PROFILE_NAME: LeRobotProfile(
+        name=PIPER_PROFILE_NAME,
+        camera_mapping={
+            "cam_high": "observation.images.cam_front",
+            "cam_left_wrist": "observation.images.cam_left_wrist",
+            "cam_right_wrist": "observation.images.cam_right_wrist",
+        },
+        prompt=PIPER_TASK_PROMPT,
+        robot_type=PIPER_ROBOT_TYPE,
+        action_feature_names=("motors",),
+        camera_shape=(3, 224, 224),
+        source_aspect=None,
+    ),
+}
+
+
+def _profile(profile_name: str) -> LeRobotProfile:
+    try:
+        return _PROFILES[profile_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported LeRobot PI0.5 profile: {profile_name}") from exc
+
+
+def _load_config(checkpoint_root: Path, profile: LeRobotProfile):
     from lerobot.policies.pi05.configuration_pi05 import PI05Config
 
     raw = json.loads((checkpoint_root / "config.json").read_text(encoding="utf-8"))
     if raw.get("use_relative_actions") is not False:
-        raise ValueError("Pinned YAM pickup checkpoint must use absolute actions.")
-    if tuple(raw.get("action_feature_names", ())) != _ACTION_NAMES:
-        raise ValueError("Pinned YAM pickup checkpoint action channels do not match RoboDojo YAM.")
+        raise ValueError(f"Pinned {profile.name} checkpoint must use absolute actions.")
+    if tuple(raw.get("action_feature_names", ())) != profile.action_feature_names:
+        raise ValueError(f"Pinned {profile.name} checkpoint action channels do not match its profile.")
+    if raw.get("chunk_size") != 50 or raw.get("n_action_steps") != 50:
+        raise ValueError(f"Pinned {profile.name} checkpoint must predict 50 absolute actions.")
+    if (raw.get("input_features") or {}).get("observation.state", {}).get("shape") != [14]:
+        raise ValueError(f"Pinned {profile.name} checkpoint must accept 14D state.")
+    if (raw.get("output_features") or {}).get("action", {}).get("shape") != [14]:
+        raise ValueError(f"Pinned {profile.name} checkpoint must emit 14D action.")
+    for camera_key in profile.camera_mapping.values():
+        shape = (raw.get("input_features") or {}).get(camera_key, {}).get("shape")
+        if not isinstance(shape, list) or len(shape) != 3 or shape[0] != 3:
+            raise ValueError(f"Pinned {profile.name} checkpoint has invalid camera feature {camera_key}: {shape!r}.")
+        if profile.camera_shape is not None and tuple(shape) != profile.camera_shape:
+            raise ValueError(
+                f"Pinned {profile.name} checkpoint camera {camera_key} must have shape "
+                f"{profile.camera_shape}; got {shape!r}."
+            )
 
     valid_fields = {field.name for field in fields(PI05Config)}
     compatible = {key: value for key, value in raw.items() if key in valid_fields}
@@ -172,24 +236,35 @@ def _make_processors(config, checkpoint_root: Path):
     return preprocessor, postprocessor
 
 
-def _resize_chw(image: Any, *, height: int, width: int) -> np.ndarray:
+def _resize_chw(
+    image: Any,
+    *,
+    height: int,
+    width: int,
+    source_aspect: float | None = _YAM_PICKUP_SOURCE_ASPECT,
+) -> np.ndarray:
     chw = np.asarray(image, dtype=np.uint8)
     if chw.ndim != 3 or chw.shape[0] != 3:
-        raise ValueError(f"LeRobot YAM image must be uint8 CHW, got {chw.shape}.")
+        raise ValueError(f"LeRobot image must be uint8 CHW, got {chw.shape}.")
     hwc = np.transpose(chw, (1, 2, 0))
     source_height, source_width = hwc.shape[:2]
+
+    if source_aspect is None:
+        if (source_height, source_width) == (height, width):
+            return hwc.copy()
+        return cv2.resize(hwc, (width, height), interpolation=cv2.INTER_AREA)
 
     # Generic pickup demonstrations used 640x360 YAM streams before dataset
     # standardization. Form that source view from Moonlake's 640x480 cameras;
     # otherwise direct 4:3 letterboxing produces unseen side bars and shrinks
     # every scene feature relative to training.
-    source_aspect = source_width / source_height
-    if source_aspect < _YAM_PICKUP_SOURCE_ASPECT:
-        crop_height = min(source_height, round(source_width / _YAM_PICKUP_SOURCE_ASPECT))
+    actual_aspect = source_width / source_height
+    if actual_aspect < source_aspect:
+        crop_height = min(source_height, round(source_width / source_aspect))
         top = (source_height - crop_height) // 2
         hwc = hwc[top : top + crop_height]
-    elif source_aspect > _YAM_PICKUP_SOURCE_ASPECT:
-        crop_width = min(source_width, round(source_height * _YAM_PICKUP_SOURCE_ASPECT))
+    elif actual_aspect > source_aspect:
+        crop_width = min(source_width, round(source_height * source_aspect))
         left = (source_width - crop_width) // 2
         hwc = hwc[:, left : left + crop_width]
 
@@ -213,10 +288,11 @@ def _resize_chw(image: Any, *, height: int, width: int) -> np.ndarray:
 class LeRobotPi05Policy:
     """Expose a pinned LeRobot PI0.5 checkpoint through OpenPI's infer API."""
 
-    def __init__(self, checkpoint_root: Path, *, seed: int):
+    def __init__(self, checkpoint_root: Path, *, seed: int, profile_name: str = YAM_PICKUP_PROFILE_NAME):
         from lerobot.policies.pi05.modeling_pi05 import PI05Policy
 
-        self.config = _load_config(checkpoint_root)
+        self.profile = _profile(profile_name)
+        self.config = _load_config(checkpoint_root, self.profile)
         self.policy = _load_policy(PI05Policy, self.config, checkpoint_root)
         self.preprocessor, self.postprocessor = _make_processors(self.config, checkpoint_root)
         self.seed = int(seed)
@@ -230,20 +306,25 @@ class LeRobotPi05Policy:
     def infer(self, observation: dict[str, Any], **_: Any) -> dict[str, np.ndarray]:
         state = np.asarray(observation["state"], dtype=np.float32)
         if state.shape != (14,):
-            raise ValueError(f"LeRobot YAM state must have shape (14,), got {state.shape}.")
+            raise ValueError(f"LeRobot state must have shape (14,), got {state.shape}.")
 
         batch: dict[str, Any] = {
             "observation.state": torch.from_numpy(state.copy()),
             # Use the checkpoint's exact generic pick-and-place vocabulary;
             # unlike the fruit-bag task, it does not imply a long placement
             # sweep through receptacle clutter after approaching the object.
-            "task": YAM_PICKUP_TASK_PROMPT,
-            "robot_type": "yam_follower_bimanual",
+            "task": self.profile.prompt,
+            "robot_type": self.profile.robot_type,
         }
-        for source_key, checkpoint_key in _CAMERA_MAPPING.items():
+        for source_key, checkpoint_key in self.profile.camera_mapping.items():
             feature = self.config.input_features[checkpoint_key]
             _, height, width = feature.shape
-            resized = _resize_chw(observation["images"][source_key], height=height, width=width)
+            resized = _resize_chw(
+                observation["images"][source_key],
+                height=height,
+                width=width,
+                source_aspect=self.profile.source_aspect,
+            )
             batch[checkpoint_key] = torch.from_numpy(resized).permute(2, 0, 1).float().div_(255.0)
 
         prepared = self.preprocessor(batch)

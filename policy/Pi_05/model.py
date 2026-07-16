@@ -14,6 +14,7 @@ from openpi.training import config as _config
 
 from XPolicyLab.model_template import ModelTemplate
 from XPolicyLab.policy.Pi_05.contract import (
+    LEROBOT_PROFILE_NAMES,
     YAM_PICKUP_PROFILE_NAME,
     apply_checkpoint_profile,
     checkpoint_actions_to_robodojo,
@@ -124,10 +125,14 @@ class Model(ModelTemplate):
         repo_id = model_cfg.get("repo_id", "1118")
         model_root = _resolve_pi05_model_root(model_cfg)
 
-        if model_cfg.get("checkpoint_profile") == YAM_PICKUP_PROFILE_NAME:
+        if model_cfg.get("checkpoint_profile") in LEROBOT_PROFILE_NAMES:
             from XPolicyLab.policy.Pi_05.lerobot_backend import LeRobotPi05Policy
 
-            return LeRobotPi05Policy(model_root, seed=int(model_cfg.get("seed", 0)))
+            return LeRobotPi05Policy(
+                model_root,
+                seed=int(model_cfg.get("seed", 0)),
+                profile_name=model_cfg["checkpoint_profile"],
+            )
 
         config = _config.get_config(train_config_name)
         norm_stats = None

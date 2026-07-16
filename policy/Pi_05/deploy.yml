@@ -6,8 +6,8 @@ bench_name: null
 task_name: null
 env_cfg_type: null
 ckpt_name: null
-# Public aliases: pi05_arx5_multitask_v1, pi05_yam_molmoact2, and
-# pi05_yam_abc_pickplace. The adapter
+# Public aliases: pi05_arx5_multitask_v1, pi05_yam_molmoact2,
+# pi05_yam_abc_pickplace, and pi05_piper_bimanual_v1. The adapter
 # expands each to a pinned snapshot under ROBODOJO_STORAGE_ROOT and retains
 # local/path checkpoint behavior.
 seed: null

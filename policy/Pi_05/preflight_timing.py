@@ -1,4 +1,4 @@
-"""Cross-check the public pi05 YAM timing contract against RoboDojo configs."""
+"""Cross-check public PI0.5 timing contracts against RoboDojo configs."""
 
 from __future__ import annotations
 
@@ -23,11 +23,20 @@ def _load_mapping(path: Path) -> dict[str, Any]:
 
 def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_NAME) -> dict[str, int]:
     root = root.resolve()
-    environment = _load_mapping(root / "configs/environment/bimanual_yam.yml")
+    if profile_name == contract.PIPER_PROFILE_NAME:
+        environment_name = "bimanual_piper"
+        setup_resolutions = {"bimanual_piper_pickplace": [224, 224]}
+    else:
+        environment_name = "bimanual_yam"
+        setup_resolutions = {
+            "bimanual_yam_molmoact2": [640, 360],
+            "bimanual_yam_moonlake_office": [640, 480],
+        }
+    environment = _load_mapping(root / "configs/environment" / f"{environment_name}.yml")
     profile = contract.apply_checkpoint_profile(
         {
             "ckpt_name": profile_name,
-            "env_cfg_type": "bimanual_yam",
+            "env_cfg_type": environment_name,
             "action_type": "joint",
         }
     )
@@ -40,7 +49,7 @@ def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_N
     sim_name = config.get("sim")
     camera_name = config.get("camera")
     if not isinstance(sim_name, str) or not isinstance(camera_name, str):
-        raise ValueError("bimanual_yam must select named sim and camera profiles")
+        raise ValueError(f"{environment_name} must select named sim and camera profiles")
 
     sim = _load_mapping(root / "configs/sim" / f"{sim_name}.yml")
     observation = environment.get("observation") or {}
@@ -48,7 +57,7 @@ def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_N
     control_hz = int(profile["control_hz"])
     collect_hz = observation.get("collect_freq")
     if isinstance(collect_hz, bool) or collect_hz != control_hz:
-        raise ValueError(f"bimanual_yam observation rate must be {control_hz} Hz; got {collect_hz!r}")
+        raise ValueError(f"{environment_name} observation rate must be {control_hz} Hz; got {collect_hz!r}")
 
     dt = sim.get("dt")
     if isinstance(dt, bool) or not isinstance(dt, int | float) or not math.isfinite(dt) or dt <= 0:
@@ -56,24 +65,20 @@ def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_N
     physics_hz_float = 1.0 / float(dt)
     physics_hz = round(physics_hz_float)
     if not math.isclose(physics_hz_float, 240.0, rel_tol=0.0, abs_tol=1e-9):
-        raise ValueError(f"bimanual_yam physics rate must be 240 Hz; got {physics_hz_float}")
+        raise ValueError(f"{environment_name} physics rate must be 240 Hz; got {physics_hz_float}")
 
     ticks_float = physics_hz_float / control_hz
     ticks_per_action = round(ticks_float)
     if not math.isclose(ticks_float, ticks_per_action, rel_tol=0.0, abs_tol=1e-9):
         raise ValueError(f"physics/control ratio must be integral; got {ticks_float}")
     if ticks_per_action != 8:
-        raise ValueError(f"bimanual_yam must execute eight physics ticks per action; got {ticks_per_action}")
+        raise ValueError(f"{environment_name} must execute eight physics ticks per action; got {ticks_per_action}")
     if sim.get("render_interval") != ticks_per_action:
         raise ValueError(
             f"render_interval must equal ticks per action ({ticks_per_action}); got {sim.get('render_interval')!r}"
         )
 
     expected_cameras = ("cam_head", "cam_left_wrist", "cam_right_wrist")
-    setup_resolutions = {
-        "bimanual_yam_molmoact2": [640, 360],
-        "bimanual_yam_moonlake_office": [640, 480],
-    }
     for setup_name, expected_resolution in setup_resolutions.items():
         setup = _load_mapping(root / "configs/environment" / f"{setup_name}.yml")
         setup_camera_name = (setup.get("config") or {}).get("camera")
@@ -106,14 +111,15 @@ def validate_timing_chain(root: Path, profile_name: str = contract.YAM_PROFILE_N
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
-    parser.add_argument("--profile", choices=sorted(contract.YAM_PROFILE_NAMES), default=contract.YAM_PROFILE_NAME)
+    timing_profiles = (*contract.YAM_PROFILE_NAMES, contract.PIPER_PROFILE_NAME)
+    parser.add_argument("--profile", choices=sorted(timing_profiles), default=contract.YAM_PROFILE_NAME)
     args = parser.parse_args()
     timing = validate_timing_chain(args.root, args.profile)
     print(
         f"prediction={timing['predicted_horizon']} execution={timing['executed_horizon']} "
         f"control={timing['control_hz']}Hz physics={timing['physics_hz']}Hz "
         f"ticks_per_action={timing['ticks_per_action']} "
-        f"cameras={timing['camera_count']}x640x{{360,480}}@{timing['control_hz']}Hz"
+        f"cameras={timing['camera_count']}@{timing['control_hz']}Hz"
     )
 
 

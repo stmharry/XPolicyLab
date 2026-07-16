@@ -81,3 +81,30 @@ profiles:
       scene_id: moonlake_office
       reference_environments: [bimanual_yam_moonlake_office]
       reference_scenes: [moonlake_office]
+  pi05_piper_bimanual_v1:
+    launch: {dataset: RoboDojo, action_type: joint}
+    interface:
+      embodiment: bimanual_piper
+      state: {representation: joint, dimension: 14, frame: piper_bimanual_absolute}
+      action: {representation: joint, dimension: 14, frame: piper_bimanual_absolute, rate_hz: 30}
+      cameras:
+        dtype: uint8
+        required:
+          - {role: top, accepted_resolutions: [[224, 224]]}
+          - {role: left_wrist, accepted_resolutions: [[224, 224]]}
+          - {role: right_wrist, accepted_resolutions: [[224, 224]]}
+    adapter:
+      state_transform: piper_half_jaw_to_total_opening_v1
+      action_transform: piper_total_opening_to_half_jaw_with_hard_limits_v1
+      image_transform: exact_224x224_checkpoint_mapping
+    execution:
+      strategy: fixed_prefix
+      prediction_horizon: 50
+      nominal_execution_horizon: 8
+      maximum_execution_horizon: 8
+    training:
+      dataset_id: Ishan-Axibo/piperx_pick_place_bimanual
+      setup_id: piper_dataset_policy_tuned_v1
+      scene_id: piper_pickplace_tabletop
+      reference_environments: [bimanual_piper_pickplace]
+      reference_scenes: [piper_pickplace_tabletop]

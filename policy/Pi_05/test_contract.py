@@ -472,5 +472,179 @@ class Pi05YamContractTest(unittest.TestCase):
                 _validate_saved_processors(root)
 
 
+class Pi05PiperContractTest(unittest.TestCase):
+    def _profile(self):
+        return contract.apply_checkpoint_profile(
+            {
+                "ckpt_name": contract.PIPER_PROFILE_NAME,
+                "env_cfg_type": "bimanual_piper",
+                "action_type": "joint",
+            }
+        )
+
+    def test_profile_alias_pins_snapshot_prompt_embodiment_and_timing(self):
+        with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": "/runtime"}):
+            cfg = contract.apply_checkpoint_profile(
+                {
+                    "ckpt_name": contract.PIPER_PROFILE_NAME,
+                    "env_cfg_type": "bimanual_piper",
+                    "action_type": "joint",
+                    "checkpoint_num": 40000,
+                }
+            )
+
+        expected = f"/runtime/model_weights/Pi_05/{contract.PIPER_PROFILE_NAME}/{contract.PIPER_HF_REVISION}"
+        self.assertEqual(cfg["checkpoint_profile"], contract.PIPER_PROFILE_NAME)
+        self.assertEqual(cfg["model_path"], expected)
+        self.assertEqual(cfg["policy_backend"], "lerobot_pi05")
+        self.assertEqual(cfg["embodiment_contract"], "bimanual_piper")
+        self.assertEqual(cfg["dataset_frame"], "piper_bimanual_absolute")
+        self.assertEqual(cfg["predicted_horizon"], 50)
+        self.assertEqual(cfg["executed_horizon"], 8)
+        self.assertEqual(cfg["actions_per_chunk"], 8)
+        self.assertEqual(cfg["control_hz"], 30)
+        self.assertNotIn("checkpoint_num", cfg)
+        self.assertEqual(contract.PIPER_TASK_PROMPT, "pick up blue cube and place in red bin")
+        self.assertEqual(contract.PIPER_ROBOT_TYPE, "bimanual_piper")
+
+    def test_profile_requires_exact_piper_joint_runtime_and_timing(self):
+        cfg = self._profile()
+        robot_info = {"arm_dim": [6, 6], "ee_dim": [1, 1]}
+        contract.validate_profile_runtime(cfg, robot_info)
+
+        with self.assertRaisesRegex(ValueError, "bimanual_piper"):
+            contract.validate_profile_runtime({**cfg, "env_cfg_type": "bimanual_yam"}, robot_info)
+        with self.assertRaisesRegex(ValueError, "action_type='joint'"):
+            contract.validate_profile_runtime({**cfg, "action_type": "ee"}, robot_info)
+        with self.assertRaisesRegex(ValueError, "executed_horizon=8"):
+            contract.validate_profile_runtime({**cfg, "executed_horizon": 9}, robot_info)
+
+    def test_state_and_action_contract_convert_total_jaw_and_log_every_clip(self):
+        cfg = self._profile()
+        state = np.zeros(14, dtype=np.float32)
+        state[6] = 0.01
+        state[13] = 0.035
+        checkpoint_state = contract.robodojo_state_to_checkpoint(cfg, state)
+        np.testing.assert_allclose(checkpoint_state[[6, 13]], [0.02, 0.07])
+
+        actions = np.zeros((50, 14), dtype=np.float32)
+        actions[:, 2] = -1.0
+        actions[0, 0] = 3.0
+        actions[0, 1] = -1.0
+        actions[0, 12] = -3.0
+        actions[0, 6] = -1.0
+        actions[0, 13] = 0.1
+        actions[7, 6] = 0.04
+        actions[8, 6] = 0.06
+        with self.assertLogs("XPolicyLab.utils.bimanual_piper_contract", level="WARNING") as captured:
+            simulator = contract.checkpoint_actions_to_robodojo(cfg, actions)
+
+        self.assertEqual(simulator.shape, (8, 14))
+        np.testing.assert_allclose(simulator[0, [0, 1, 12]], [2.618, 0.0, -2.0944], rtol=0, atol=1e-6)
+        np.testing.assert_allclose(simulator[0, [6, 13]], [0.0, 0.035])
+        self.assertAlmostEqual(float(simulator[7, 6]), 0.02)
+        self.assertNotAlmostEqual(float(simulator[-1, 6]), 0.03)
+        self.assertEqual(len(captured.records), 5)
+        self.assertTrue(all("Clipped PiPER checkpoint action" in record.getMessage() for record in captured.records))
+
+        with self.assertRaisesRegex(ValueError, "outside"):
+            contract.robodojo_state_to_checkpoint(cfg, np.asarray([3.0, *state[1:]], dtype=np.float32))
+
+    def test_camera_contract_requires_exact_order_dtype_and_224_square_shape(self):
+        cfg = self._profile()
+        images = {
+            key: np.zeros((3, 224, 224), dtype=np.uint8)
+            for key in ("cam_high", "cam_left_wrist", "cam_right_wrist")
+        }
+        contract.validate_profile_camera_payload(cfg, images)
+        reordered = {"cam_left_wrist": images["cam_left_wrist"], "cam_high": images["cam_high"], **images}
+        with self.assertRaisesRegex(ValueError, "camera order"):
+            contract.validate_profile_camera_payload(cfg, reordered)
+        with self.assertRaisesRegex(ValueError, "uint8 CHW"):
+            contract.validate_profile_camera_payload(cfg, {**images, "cam_high": images["cam_high"].astype(float)})
+
+    def test_checkpoint_requires_exact_snapshot_and_saved_quantile_processors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            storage = Path(temporary)
+            with mock.patch.dict(os.environ, {"ROBODOJO_STORAGE_ROOT": str(storage)}):
+                root = contract.checkpoint_path(contract.PIPER_PROFILE_NAME)
+                root.mkdir(parents=True)
+                for filename in contract.PIPER_ARTIFACT_SHA256:
+                    (root / filename).touch()
+                contract.validate_profile_checkpoint(root, contract.PIPER_PROFILE_NAME)
+                with self.assertRaisesRegex(ValueError, "pinned snapshot root"):
+                    contract.validate_profile_checkpoint(root.parent / "40000", contract.PIPER_PROFILE_NAME)
+                (root / "policy_preprocessor_step_2_normalizer_processor.safetensors").unlink()
+                with self.assertRaisesRegex(FileNotFoundError, "normalizer"):
+                    contract.validate_profile_checkpoint(root, contract.PIPER_PROFILE_NAME)
+
+    def test_pinned_checkpoint_hashes_and_model_size_match_release(self):
+        self.assertEqual(contract.PIPER_MODEL_SIZE, 9_354_045_072)
+        self.assertEqual(
+            contract.PIPER_ARTIFACT_SHA256["model.safetensors"],
+            "09d36543a0524a3227f478beffc7053f6f463e728b6030b54c0fc4ce1f9c06d4",
+        )
+        self.assertEqual(
+            contract.PIPER_ARTIFACT_SHA256["config.json"],
+            "d4b024f9d1e92db6c12dba023556f346459c1447a900386f01ffc099603bd67d",
+        )
+        expected_norm = "32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
+        self.assertEqual(
+            contract.PIPER_ARTIFACT_SHA256["policy_preprocessor_step_2_normalizer_processor.safetensors"],
+            expected_norm,
+        )
+        self.assertEqual(
+            contract.PIPER_ARTIFACT_SHA256["policy_postprocessor_step_0_unnormalizer_processor.safetensors"],
+            expected_norm,
+        )
+
+    def test_lerobot_profile_maps_top_and_wrist_cameras_without_piper_resizing(self):
+        from XPolicyLab.policy.Pi_05.lerobot_backend import _profile, _resize_chw
+
+        profile = _profile(contract.PIPER_PROFILE_NAME)
+        self.assertEqual(
+            profile.camera_mapping,
+            {
+                "cam_high": "observation.images.cam_front",
+                "cam_left_wrist": "observation.images.cam_left_wrist",
+                "cam_right_wrist": "observation.images.cam_right_wrist",
+            },
+        )
+        self.assertEqual(profile.prompt, contract.PIPER_TASK_PROMPT)
+        self.assertEqual(profile.robot_type, contract.PIPER_ROBOT_TYPE)
+        self.assertEqual(profile.action_feature_names, ("motors",))
+        self.assertEqual(profile.camera_shape, (3, 224, 224))
+
+        image = np.arange(3 * 224 * 224, dtype=np.uint8).reshape(3, 224, 224)
+        converted = _resize_chw(image, height=224, width=224, source_aspect=profile.source_aspect)
+        np.testing.assert_array_equal(converted, np.transpose(image, (1, 2, 0)))
+
+    def test_timing_preflight_validates_root_sim_and_camera_profiles(self):
+        from XPolicyLab.policy.Pi_05.preflight_timing import validate_timing_chain
+
+        root = Path(__file__).resolve().parents[3]
+        self.assertEqual(
+            validate_timing_chain(root, contract.PIPER_PROFILE_NAME),
+            {
+                "predicted_horizon": 50,
+                "executed_horizon": 8,
+                "control_hz": 30,
+                "physics_hz": 240,
+                "ticks_per_action": 8,
+                "camera_count": 3,
+            },
+        )
+
+    def test_checkpoint_preparation_and_integrity_scripts_pin_piper_artifacts(self):
+        prepare = (Path(__file__).parent / "prepare_checkpoint.sh").read_text()
+        check = (Path(__file__).parent / "check_eval_policy.sh").read_text()
+        self.assertIn('PIPER_PROFILE="pi05_piper_bimanual_v1"', prepare)
+        self.assertIn('REPO_ID="axiboai/pi05-piper-bimanual-v1"', prepare)
+        self.assertIn(f'REVISION="{contract.PIPER_HF_REVISION}"', prepare)
+        self.assertIn('MODEL_SIZE="9354045072"', prepare)
+        for checksum in contract.PIPER_ARTIFACT_SHA256.values():
+            self.assertIn(checksum, prepare + check)
+
+
 if __name__ == "__main__":
     unittest.main()

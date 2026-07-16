@@ -3,6 +3,10 @@
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]
     },
+    "bimanual_piper": {
+        "arm_dim": [6, 6],
+        "ee_dim": [1, 1]
+    },
     "arx_x5": {
         "arm_dim": [6, 6],
         "ee_dim": [1, 1]

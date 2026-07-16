@@ -7,7 +7,11 @@ from typing import Any
 
 import numpy as np
 
-from XPolicyLab.utils import bimanual_yam_contract as _yam, yam_molmoact2_frame as _yam_frame
+from XPolicyLab.utils import (
+    bimanual_piper_contract as _piper,
+    bimanual_yam_contract as _yam,
+    yam_molmoact2_frame as _yam_frame,
+)
 from XPolicyLab.utils.robodojo_paths import model_weight_root
 
 # Keep the original names as compatibility aliases for callers that imported the
@@ -30,6 +34,26 @@ YAM_PICKUP_HF_REPO_ID = "pztang/yam-abc-pickplace-safe-pi05-8gpu-m1"
 YAM_PICKUP_HF_REVISION = "44cc2cd8d7edf9be332bc3cfa7475484897c61e9"
 YAM_PICKUP_TASK_PROMPT = "Pick and place the object"
 
+PIPER_PROFILE_NAME = "pi05_piper_bimanual_v1"
+PIPER_HF_REPO_ID = "axiboai/pi05-piper-bimanual-v1"
+PIPER_HF_REVISION = "3701b435a9730069b56979383c6a31d77cf7f61f"
+PIPER_TASK_PROMPT = "pick up blue cube and place in red bin"
+PIPER_ROBOT_TYPE = "bimanual_piper"
+PIPER_MODEL_SIZE = 9_354_045_072
+PIPER_ARTIFACT_SHA256 = {
+    "model.safetensors": "09d36543a0524a3227f478beffc7053f6f463e728b6030b54c0fc4ce1f9c06d4",
+    "config.json": "d4b024f9d1e92db6c12dba023556f346459c1447a900386f01ffc099603bd67d",
+    "policy_preprocessor.json": "7b1cb16c1aeaa5f913807c0cc6e8b1c54ea8070d060c13b88012157b6abb92c3",
+    "policy_preprocessor_step_2_normalizer_processor.safetensors": (
+        "32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
+    ),
+    "policy_postprocessor.json": "7e721aeab8736709ba60948f4c96ea9b14a88bb4c7baaf20afd7ba1eada8ed0d",
+    "policy_postprocessor_step_0_unnormalizer_processor.safetensors": (
+        "32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
+    ),
+    "train_config.json": "cfc880b3c0617b7acdb1c784c8bc6ca42299d1f1cefb088dd9c160a2d3467f9d",
+}
+
 ACTION_DIM = 14
 ARX_ACTION_HORIZON = 50
 ACTION_HORIZON = ARX_ACTION_HORIZON
@@ -51,6 +75,9 @@ YAM_PICKUP_POST_GRASP_EXECUTED_HORIZON = YAM_PICKUP_ACTION_HORIZON
 # object reaches the finger roots and turns the grasp into a push.
 YAM_PICKUP_GRASP_EXECUTED_HORIZON = YAM_PICKUP_ACTION_HORIZON
 YAM_CONTROL_HZ = 30
+PIPER_ACTION_HORIZON = 50
+PIPER_EXECUTED_HORIZON = 8
+PIPER_CONTROL_HZ = 30
 GRIPPER_INDICES = (6, 13)
 YAM_PICKUP_GRIPPER_CLOSE_THRESHOLD = 0.25
 YAM_PICKUP_GRIPPER_HOLD_TARGET = 0.0
@@ -67,7 +94,8 @@ YAM_PICKUP_GRASP_JOINT_CALIBRATION = np.asarray(
 GRIPPER_OFFSET = -0.01
 GRIPPER_SPAN = 0.054
 YAM_PROFILE_NAMES = frozenset((YAM_PROFILE_NAME, YAM_PICKUP_PROFILE_NAME))
-PUBLIC_PROFILE_NAMES = frozenset((ARX_PROFILE_NAME, *YAM_PROFILE_NAMES))
+LEROBOT_PROFILE_NAMES = frozenset((YAM_PICKUP_PROFILE_NAME, PIPER_PROFILE_NAME))
+PUBLIC_PROFILE_NAMES = frozenset((ARX_PROFILE_NAME, PIPER_PROFILE_NAME, *YAM_PROFILE_NAMES))
 
 
 def snapshot_path(profile_name: str = ARX_PROFILE_NAME) -> Path:
@@ -77,6 +105,8 @@ def snapshot_path(profile_name: str = ARX_PROFILE_NAME) -> Path:
         revision = YAM_HF_REVISION
     elif profile_name == YAM_PICKUP_PROFILE_NAME:
         revision = YAM_PICKUP_HF_REVISION
+    elif profile_name == PIPER_PROFILE_NAME:
+        revision = PIPER_HF_REVISION
     else:
         raise ValueError(f"Unknown public PI0.5 checkpoint profile: {profile_name}")
     return model_weight_root("Pi_05", profile_name, revision)
@@ -149,6 +179,24 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
                 "control_hz": YAM_CONTROL_HZ,
             }
         )
+    elif profile_name == PIPER_PROFILE_NAME:
+        snapshot = snapshot_path(PIPER_PROFILE_NAME)
+        cfg.pop("checkpoint_num", None)
+        cfg.update(
+            {
+                "checkpoint_profile": PIPER_PROFILE_NAME,
+                "model_path": str(snapshot),
+                "hf_repo_id": PIPER_HF_REPO_ID,
+                "hf_revision": PIPER_HF_REVISION,
+                "policy_backend": "lerobot_pi05",
+                "embodiment_contract": _piper.ENVIRONMENT_NAME,
+                "dataset_frame": "piper_bimanual_absolute",
+                "predicted_horizon": PIPER_ACTION_HORIZON,
+                "executed_horizon": PIPER_EXECUTED_HORIZON,
+                "actions_per_chunk": PIPER_EXECUTED_HORIZON,
+                "control_hz": PIPER_CONTROL_HZ,
+            }
+        )
     return cfg
 
 
@@ -177,6 +225,23 @@ def validate_profile_runtime(
         _yam.validate_environment(env_cfg_type)
         _yam.validate_robot_contract(robot_action_dim_info)
         validate_yam_timing_contract(model_cfg)
+    elif profile_name == PIPER_PROFILE_NAME:
+        _piper.validate_environment(env_cfg_type)
+        _piper.validate_robot_contract(robot_action_dim_info)
+        validate_piper_timing_contract(model_cfg)
+
+
+def validate_piper_timing_contract(model_cfg: dict[str, Any]) -> None:
+    expected = {
+        "predicted_horizon": PIPER_ACTION_HORIZON,
+        "executed_horizon": PIPER_EXECUTED_HORIZON,
+        "actions_per_chunk": PIPER_EXECUTED_HORIZON,
+        "control_hz": PIPER_CONTROL_HZ,
+    }
+    for key, expected_value in expected.items():
+        actual = model_cfg.get(key, expected_value)
+        if isinstance(actual, bool) or actual != expected_value:
+            raise ValueError(f"{PIPER_PROFILE_NAME} requires {key}={expected_value}; got {actual!r}.")
 
 
 def validate_yam_timing_contract(model_cfg: dict[str, Any]) -> None:
@@ -221,13 +286,19 @@ def validate_profile_checkpoint(path: Path, profile_name: str = ARX_PROFILE_NAME
         else:
             detail = "the pinned snapshot root"
         raise ValueError(f"{profile_name} requires {detail}: {expected}; got {actual}.")
-    if profile_name == YAM_PICKUP_PROFILE_NAME:
+    if profile_name in LEROBOT_PROFILE_NAMES:
+        normalizer_name = (
+            "policy_preprocessor_step_2_normalizer_processor.safetensors"
+            if profile_name == PIPER_PROFILE_NAME
+            else "policy_preprocessor_step_3_normalizer_processor.safetensors"
+        )
         required_files = (
             "config.json",
             "model.safetensors",
             "policy_preprocessor.json",
             "policy_postprocessor.json",
             "policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+            normalizer_name,
         )
         missing = [name for name in required_files if not (actual / name).is_file()]
         if missing:
@@ -284,6 +355,8 @@ def robodojo_state_to_checkpoint(model_cfg: dict[str, Any], values: Any) -> np.n
         return _yam_frame.simulator_to_dataset(_yam.validate_state(values))
     if profile_name == YAM_PICKUP_PROFILE_NAME:
         return _yam.validate_state(values).copy()
+    if profile_name == PIPER_PROFILE_NAME:
+        return _piper.simulator_state_to_checkpoint(values)
     return np.asarray(values, dtype=np.float32)
 
 
@@ -331,6 +404,12 @@ def checkpoint_actions_to_robodojo(
                 raise ValueError(f"PI0.5 pickup temporal execution returned unexpected shape {actions.shape}.")
             return actions
         return _yam_frame.dataset_to_simulator(actions)
+    if profile_name == PIPER_PROFILE_NAME:
+        validate_piper_timing_contract(model_cfg)
+        return _piper.checkpoint_actions_to_simulator(
+            values,
+            executed_horizon=PIPER_EXECUTED_HORIZON,
+        )
     return np.asarray(values, dtype=np.float32)
 
 
@@ -396,6 +475,8 @@ def hold_closed_yam_pickup_grippers(
 def validate_profile_camera_payload(model_cfg: dict[str, Any], images: dict[str, Any]) -> None:
     if model_cfg.get("checkpoint_profile") in YAM_PROFILE_NAMES:
         _yam.validate_camera_payload(images)
+    elif model_cfg.get("checkpoint_profile") == PIPER_PROFILE_NAME:
+        _piper.validate_camera_payload(images)
 
 
 def robodojo_to_checkpoint(values: Any) -> np.ndarray:

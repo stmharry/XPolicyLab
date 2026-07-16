@@ -4,6 +4,7 @@ set -euo pipefail
 ARX_PROFILE="pi05_arx5_multitask_v1"
 YAM_PROFILE="pi05_yam_molmoact2"
 YAM_PICKUP_PROFILE="pi05_yam_abc_pickplace"
+PIPER_PROFILE="pi05_piper_bimanual_v1"
 PROFILE="${1:-${ARX_PROFILE}}"
 DRY_RUN=false
 
@@ -18,7 +19,7 @@ else
     fi
 fi
 if [[ $# -ne 0 ]]; then
-    echo "Usage: $0 [${ARX_PROFILE}|${YAM_PROFILE}|${YAM_PICKUP_PROFILE}] [--dry-run]" >&2
+    echo "Usage: $0 [${ARX_PROFILE}|${YAM_PROFILE}|${YAM_PICKUP_PROFILE}|${PIPER_PROFILE}] [--dry-run]" >&2
     exit 2
 fi
 
@@ -62,9 +63,32 @@ case "${PROFILE}" in
             --include "train_config.json"
         )
         ;;
+    "${PIPER_PROFILE}")
+        REPO_ID="axiboai/pi05-piper-bimanual-v1"
+        REVISION="3701b435a9730069b56979383c6a31d77cf7f61f"
+        MODEL_RELATIVE_PATH="model.safetensors"
+        MODEL_SIZE="9354045072"
+        MODEL_SHA256="09d36543a0524a3227f478beffc7053f6f463e728b6030b54c0fc4ce1f9c06d4"
+        CONFIG_SHA256="d4b024f9d1e92db6c12dba023556f346459c1447a900386f01ffc099603bd67d"
+        NORM_RELATIVE_PATH="policy_preprocessor_step_2_normalizer_processor.safetensors"
+        NORM_SHA256="32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
+        PREPROCESSOR_SHA256="7b1cb16c1aeaa5f913807c0cc6e8b1c54ea8070d060c13b88012157b6abb92c3"
+        POSTPROCESSOR_SHA256="7e721aeab8736709ba60948f4c96ea9b14a88bb4c7baaf20afd7ba1eada8ed0d"
+        UNNORMALIZER_SHA256="32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
+        TRAIN_CONFIG_SHA256="cfc880b3c0617b7acdb1c784c8bc6ca42299d1f1cefb088dd9c160a2d3467f9d"
+        DOWNLOAD_INCLUDES=(
+            --include "config.json"
+            --include "model.safetensors"
+            --include "policy_preprocessor.json"
+            --include "policy_preprocessor_step_2_normalizer_processor.safetensors"
+            --include "policy_postprocessor.json"
+            --include "policy_postprocessor_step_0_unnormalizer_processor.safetensors"
+            --include "train_config.json"
+        )
+        ;;
     *)
         echo "Unknown PI0.5 checkpoint alias: ${PROFILE}" >&2
-        echo "Expected ${ARX_PROFILE}, ${YAM_PROFILE}, or ${YAM_PICKUP_PROFILE}." >&2
+        echo "Expected ${ARX_PROFILE}, ${YAM_PROFILE}, ${YAM_PICKUP_PROFILE}, or ${PIPER_PROFILE}." >&2
         exit 2
         ;;
 esac
@@ -159,13 +183,25 @@ fi
 
 printf '%s  %s\n' "${NORM_SHA256}" "${DESTINATION}/${NORM_RELATIVE_PATH}" | sha256sum --check --strict
 
-if [[ "${PROFILE}" == "${YAM_PICKUP_PROFILE}" ]]; then
+if [[ "${PROFILE}" == "${YAM_PICKUP_PROFILE}" || "${PROFILE}" == "${PIPER_PROFILE}" ]]; then
     [[ "$(stat -c '%s' "${DESTINATION}/${MODEL_RELATIVE_PATH}")" == "${MODEL_SIZE}" ]] || {
-        echo "PI0.5 YAM pickup model size does not match the pinned release." >&2
+        echo "PI0.5 LeRobot model size does not match the pinned release for ${PROFILE}." >&2
         exit 1
     }
     printf '%s  %s\n' "${MODEL_SHA256}" "${DESTINATION}/${MODEL_RELATIVE_PATH}" | sha256sum --check --strict
     printf '%s  %s\n' "${CONFIG_SHA256}" "${DESTINATION}/config.json" | sha256sum --check --strict
+fi
+
+if [[ "${PROFILE}" == "${PIPER_PROFILE}" ]]; then
+    printf '%s  %s\n' "${PREPROCESSOR_SHA256}" "${DESTINATION}/policy_preprocessor.json" \
+        | sha256sum --check --strict
+    printf '%s  %s\n' "${POSTPROCESSOR_SHA256}" "${DESTINATION}/policy_postprocessor.json" \
+        | sha256sum --check --strict
+    printf '%s  %s\n' "${UNNORMALIZER_SHA256}" \
+        "${DESTINATION}/policy_postprocessor_step_0_unnormalizer_processor.safetensors" \
+        | sha256sum --check --strict
+    printf '%s  %s\n' "${TRAIN_CONFIG_SHA256}" "${DESTINATION}/train_config.json" \
+        | sha256sum --check --strict
 fi
 
 if [[ "${PROFILE}" == "${YAM_PROFILE}" ]]; then

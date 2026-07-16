@@ -86,6 +86,23 @@ case "${checkpoint}" in
         [[ "${environment}" == "bimanual_yam" ]] || fail "contract" "${checkpoint} requires env bimanual_yam, got ${environment}"
         [[ "${action}" == "joint" ]] || fail "contract" "${checkpoint} requires joint actions, got ${action}"
         LEROBOT_SNAPSHOT="${STORAGE_ROOT}/model_weights/Pi_05/${checkpoint}/44cc2cd8d7edf9be332bc3cfa7475484897c61e9"
+        LEROBOT_NORM_NAME="policy_preprocessor_step_3_normalizer_processor.safetensors"
+        LEROBOT_MODEL_SIZE="9354050752"
+        LEROBOT_MODEL_SHA256="0c697969f4cefbfe781b83389212b40493ce5ed51dc5c31f15a1d2b31233eebc"
+        LEROBOT_CONFIG_SHA256="33348185438514a51dcecd003fc26f19c32be5ca685b89a9089018854ad18161"
+        LEROBOT_NORM_SHA256="1bddab6693cd52b5da72ca33e0b8f704ebc48bbeee1f48a3532c4746248cd2b6"
+        SNAPSHOT=""
+        ;;
+    pi05_piper_bimanual_v1)
+        [[ "${environment}" == "bimanual_piper" ]] \
+            || fail "contract" "${checkpoint} requires env bimanual_piper, got ${environment}"
+        [[ "${action}" == "joint" ]] || fail "contract" "${checkpoint} requires joint actions, got ${action}"
+        LEROBOT_SNAPSHOT="${STORAGE_ROOT}/model_weights/Pi_05/${checkpoint}/3701b435a9730069b56979383c6a31d77cf7f61f"
+        LEROBOT_NORM_NAME="policy_preprocessor_step_2_normalizer_processor.safetensors"
+        LEROBOT_MODEL_SIZE="9354045072"
+        LEROBOT_MODEL_SHA256="09d36543a0524a3227f478beffc7053f6f463e728b6030b54c0fc4ce1f9c06d4"
+        LEROBOT_CONFIG_SHA256="d4b024f9d1e92db6c12dba023556f346459c1447a900386f01ffc099603bd67d"
+        LEROBOT_NORM_SHA256="32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b"
         SNAPSHOT=""
         ;;
     *)
@@ -104,21 +121,39 @@ esac
 if [[ -n "${LEROBOT_SNAPSHOT}" ]]; then
     MODEL="${LEROBOT_SNAPSHOT}/model.safetensors"
     CONFIG="${LEROBOT_SNAPSHOT}/config.json"
-    NORM="${LEROBOT_SNAPSHOT}/policy_preprocessor_step_3_normalizer_processor.safetensors"
+    NORM="${LEROBOT_SNAPSHOT}/${LEROBOT_NORM_NAME}"
     [[ -f "${MODEL}" ]] || fail "checkpoint" "LeRobot model is missing: ${MODEL}"
-    [[ "$(stat -c '%s' "${MODEL}")" == "9354050752" ]] \
+    [[ "$(stat -c '%s' "${MODEL}")" == "${LEROBOT_MODEL_SIZE}" ]] \
         || fail "checkpoint" "LeRobot model size does not match the pinned release"
-    printf '%s  %s\n' "0c697969f4cefbfe781b83389212b40493ce5ed51dc5c31f15a1d2b31233eebc" "${MODEL}" \
+    printf '%s  %s\n' "${LEROBOT_MODEL_SHA256}" "${MODEL}" \
         | sha256sum --check --strict >/dev/null 2>&1 \
         || fail "checkpoint" "LeRobot model hash does not match the pinned release"
-    printf '%s  %s\n' "33348185438514a51dcecd003fc26f19c32be5ca685b89a9089018854ad18161" "${CONFIG}" \
+    printf '%s  %s\n' "${LEROBOT_CONFIG_SHA256}" "${CONFIG}" \
         | sha256sum --check --strict >/dev/null 2>&1 \
         || fail "checkpoint" "LeRobot config hash does not match the pinned release"
-    printf '%s  %s\n' "1bddab6693cd52b5da72ca33e0b8f704ebc48bbeee1f48a3532c4746248cd2b6" "${NORM}" \
+    printf '%s  %s\n' "${LEROBOT_NORM_SHA256}" "${NORM}" \
         | sha256sum --check --strict >/dev/null 2>&1 \
         || fail "checkpoint" "LeRobot normalization hash does not match the pinned release"
     if ! "${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["type"] == "pi05"; assert d["chunk_size"] == d["n_action_steps"] == 50; assert d["use_relative_actions"] is False; assert d["input_features"]["observation.state"]["shape"] == [14]; assert d["output_features"]["action"]["shape"] == [14]' "${CONFIG}" >/dev/null 2>&1; then
         fail "checkpoint" "LeRobot config does not match the bimanual absolute 50-action contract"
+    fi
+    if [[ "${checkpoint}" == "pi05_piper_bimanual_v1" ]]; then
+        printf '%s  %s\n' "7b1cb16c1aeaa5f913807c0cc6e8b1c54ea8070d060c13b88012157b6abb92c3" \
+            "${LEROBOT_SNAPSHOT}/policy_preprocessor.json" | sha256sum --check --strict >/dev/null 2>&1 \
+            || fail "checkpoint" "LeRobot preprocessor hash does not match the pinned release"
+        printf '%s  %s\n' "7e721aeab8736709ba60948f4c96ea9b14a88bb4c7baaf20afd7ba1eada8ed0d" \
+            "${LEROBOT_SNAPSHOT}/policy_postprocessor.json" | sha256sum --check --strict >/dev/null 2>&1 \
+            || fail "checkpoint" "LeRobot postprocessor hash does not match the pinned release"
+        printf '%s  %s\n' "32789a34133894427cf748bc45d9be9b9bb13fa78c14bab289427e5b86622b8b" \
+            "${LEROBOT_SNAPSHOT}/policy_postprocessor_step_0_unnormalizer_processor.safetensors" \
+            | sha256sum --check --strict >/dev/null 2>&1 \
+            || fail "checkpoint" "LeRobot unnormalizer hash does not match the pinned release"
+        printf '%s  %s\n' "cfc880b3c0617b7acdb1c784c8bc6ca42299d1f1cefb088dd9c160a2d3467f9d" \
+            "${LEROBOT_SNAPSHOT}/train_config.json" | sha256sum --check --strict >/dev/null 2>&1 \
+            || fail "checkpoint" "LeRobot training config hash does not match the pinned release"
+        if ! "${PYTHON_BIN}" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert tuple(d["input_features"]) == ("observation.state", "observation.images.cam_front", "observation.images.cam_left_wrist", "observation.images.cam_right_wrist"); assert all(d["input_features"][k]["shape"] == [3,224,224] for k in tuple(d["input_features"])[1:]); assert d["normalization_mapping"] == {"VISUAL":"IDENTITY", "STATE":"QUANTILES", "ACTION":"QUANTILES"}; assert d["action_feature_names"] == ["motors"]' "${CONFIG}" >/dev/null 2>&1; then
+            fail "checkpoint" "LeRobot config does not match the PiPER camera and quantile contract"
+        fi
     fi
     if ! env PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
         "${PYTHON_BIN}" -c 'import lerobot, torch, transformers; from transformers.models.siglip import check; assert transformers.__version__ == "4.53.3"; assert check.check_whether_transformers_replace_is_installed_correctly()' >/dev/null 2>&1; then
@@ -139,7 +174,8 @@ elif [[ -n "${SNAPSHOT}" ]]; then
     fi
     pass "checkpoint" "pinned Orbax params and quantile-stat integrity checks passed"
 fi
-if [[ "${checkpoint}" == "pi05_yam_molmoact2" || "${checkpoint}" == "pi05_yam_abc_pickplace" ]]; then
+if [[ "${checkpoint}" == "pi05_yam_molmoact2" || "${checkpoint}" == "pi05_yam_abc_pickplace" \
+    || "${checkpoint}" == "pi05_piper_bimanual_v1" ]]; then
     if ! timing_detail=$(env \
         CUDA_VISIBLE_DEVICES="${gpu}" \
         PYTHONPATH="${ROBODOJO_ROOT_RESOLVED}:${PROJECT}/src${PYTHONPATH:+:${PYTHONPATH}}" \
