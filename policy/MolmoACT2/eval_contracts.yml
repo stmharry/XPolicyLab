@@ -15,7 +15,7 @@ profiles:
     adapter:
       state_transform: yam_molmoact2_joint_sign_v1
       action_transform: yam_molmoact2_joint_sign_v1
-      image_transform: identity
+      image_transform: molmoact2_bimanual_yam_640x360_center_crop_v1
     execution:
       strategy: full_chunk
       prediction_horizon: 30
