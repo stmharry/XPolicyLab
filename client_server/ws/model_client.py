@@ -27,7 +27,17 @@ class WsModelClient:
         self._latest_obs_batch: list[Any] | None = None
         self._loop = asyncio.new_event_loop()
         self._client = client or PolicyEvalClient(
-            PolicyEvalClientConfig(url=url, evaluation_id=evaluation_id)
+            PolicyEvalClientConfig(
+                url=url,
+                evaluation_id=evaluation_id,
+                # This adapter drives a synchronous event loop only while a
+                # request is active. Isaac scene resets can legitimately take
+                # longer than the default 20-second WebSocket keepalive, so a
+                # protocol ping would time out while the loop is intentionally
+                # idle. Request timeouts and reconnects still guard traffic.
+                ws_ping_interval_s=None,
+                ws_ping_timeout_s=None,
+            )
         )
         self._loop.run_until_complete(self._client.connect(handshake=True))
 

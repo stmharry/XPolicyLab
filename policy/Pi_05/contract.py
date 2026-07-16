@@ -24,6 +24,10 @@ YAM_HF_REPO_ID = "robocurve/pi05-yam-molmoact2"
 YAM_HF_REVISION = "df991e11e8f6540098338c56342b1143fac5b952"
 YAM_TRAIN_CONFIG_NAME = "yam_pi05"
 YAM_NORM_ASSET_ID = "yam-bimanual-merged"
+YAM_CAMERA_INPUT_CONTRACT = "pi05_yam_molmoact2_640x360_center_crop_v1"
+YAM_CHECKPOINT_CAMERA_SHAPE = (3, 360, 640)
+YAM_MOONLAKE_CAMERA_SHAPE = (3, 480, 640)
+YAM_MOONLAKE_CENTER_CROP = slice(60, 420)
 
 YAM_PICKUP_PROFILE_NAME = "pi05_yam_abc_pickplace"
 YAM_PICKUP_HF_REPO_ID = "pztang/yam-abc-pickplace-safe-pi05-8gpu-m1"
@@ -125,6 +129,7 @@ def apply_checkpoint_profile(model_cfg: dict[str, Any]) -> dict[str, Any]:
                 "repo_id": YAM_NORM_ASSET_ID,
                 "embodiment_contract": _yam.ENVIRONMENT_NAME,
                 "dataset_frame": "yam_molmoact2",
+                "camera_input_contract": YAM_CAMERA_INPUT_CONTRACT,
                 "predicted_horizon": YAM_ACTION_HORIZON,
                 "executed_horizon": YAM_EXECUTED_HORIZON,
                 "actions_per_chunk": YAM_EXECUTED_HORIZON,
@@ -396,6 +401,44 @@ def hold_closed_yam_pickup_grippers(
 def validate_profile_camera_payload(model_cfg: dict[str, Any], images: dict[str, Any]) -> None:
     if model_cfg.get("checkpoint_profile") in YAM_PROFILE_NAMES:
         _yam.validate_camera_payload(images)
+
+
+def prepare_profile_camera_payload(
+    model_cfg: dict[str, Any],
+    images: dict[str, Any],
+) -> dict[str, np.ndarray]:
+    """Present YAM RGB at the pinned checkpoint's source geometry."""
+
+    validate_profile_camera_payload(model_cfg, images)
+    if model_cfg.get("checkpoint_profile") != YAM_PROFILE_NAME:
+        return {key: np.ascontiguousarray(np.asarray(value)) for key, value in images.items()}
+
+    contract_name = model_cfg.get("camera_input_contract")
+    if contract_name != YAM_CAMERA_INPUT_CONTRACT:
+        raise ValueError(f"Unknown PI0.5 YAM camera_input_contract: {contract_name!r}.")
+
+    prepared: dict[str, np.ndarray] = {}
+    for camera in _yam.CAMERA_KEYS:
+        source = np.asarray(images[camera])
+        if source.shape == YAM_CHECKPOINT_CAMERA_SHAPE:
+            checkpoint_image = source
+        elif source.shape == YAM_MOONLAKE_CAMERA_SHAPE:
+            checkpoint_image = source[:, YAM_MOONLAKE_CENTER_CROP, :]
+        else:  # Defensive if the shared source contract expands independently.
+            raise ValueError(
+                f"{camera} cannot be presented to {contract_name!r}: "
+                f"expected one of {(YAM_CHECKPOINT_CAMERA_SHAPE, YAM_MOONLAKE_CAMERA_SHAPE)}, "
+                f"got {source.shape}."
+            )
+        prepared[camera] = np.ascontiguousarray(checkpoint_image)
+
+    for camera, image in prepared.items():
+        if image.shape != YAM_CHECKPOINT_CAMERA_SHAPE or image.dtype != np.uint8:
+            raise ValueError(
+                f"{camera} must reach the PI0.5 YAM checkpoint as uint8 CHW "
+                f"{YAM_CHECKPOINT_CAMERA_SHAPE}, got dtype={image.dtype}, shape={image.shape}."
+            )
+    return prepared
 
 
 def robodojo_to_checkpoint(values: Any) -> np.ndarray:

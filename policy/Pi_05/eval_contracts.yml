@@ -42,7 +42,7 @@ profiles:
     adapter:
       state_transform: yam_molmoact2_joint_sign_v1
       action_transform: yam_molmoact2_joint_sign_v1
-      image_transform: checkpoint_preprocessor
+      image_transform: pi05_yam_molmoact2_640x360_center_crop_v1
     execution:
       strategy: fixed_prefix
       prediction_horizon: 16

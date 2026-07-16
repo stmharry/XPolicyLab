@@ -7,6 +7,7 @@
 from pathlib import Path
 from typing import Any
 
+import jax
 import numpy as np
 from openpi.policies import policy_config as _policy_config
 from openpi.shared import normalize as _normalize
@@ -19,8 +20,8 @@ from XPolicyLab.policy.Pi_05.contract import (
     checkpoint_actions_to_robodojo,
     hold_closed_yam_pickup_grippers,
     is_public_checkpoint_profile,
+    prepare_profile_camera_payload,
     robodojo_state_to_checkpoint,
-    validate_profile_camera_payload,
     validate_profile_checkpoint,
     validate_profile_runtime,
 )
@@ -136,7 +137,13 @@ class Model(ModelTemplate):
         elif repo_id is not None:
             norm_stats = _normalize.load(model_root / "assets" / str(repo_id))
 
-        return _policy_config.create_trained_policy(config, str(model_root), norm_stats=norm_stats)
+        seed = int(model_cfg.get("seed") or 0)
+        return _policy_config.create_trained_policy(
+            config,
+            str(model_root),
+            norm_stats=norm_stats,
+            rng=jax.random.key(seed),
+        )
 
     def update_obs(self, obs):
         self.update_obs_batch([obs])
@@ -146,7 +153,10 @@ class Model(ModelTemplate):
         encoded_obs_list = [encode_obs(obs, self.action_type, self.robot_action_dim_info) for obs in obs_list]
         if self.is_public_checkpoint_profile:
             for encoded_obs in encoded_obs_list:
-                validate_profile_camera_payload(self.model_cfg, encoded_obs["images"])
+                encoded_obs["images"] = prepare_profile_camera_payload(
+                    self.model_cfg,
+                    encoded_obs["images"],
+                )
                 encoded_obs["state"] = robodojo_state_to_checkpoint(self.model_cfg, encoded_obs["state"])
         self.observation_window = stack_obs(encoded_obs_list)
 

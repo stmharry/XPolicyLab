@@ -1,9 +1,21 @@
+import jax
+import numpy as np
+from openpi.policies import aloha_policy, policy as _policy, policy_config as _policy_config
+from openpi.training import config as _config
 from openpi_client import action_chunk_broker
 import pytest
 
-from openpi.policies import aloha_policy
-from openpi.policies import policy_config as _policy_config
-from openpi.training import config as _config
+
+def test_reset_restores_initial_rng():
+    policy = object.__new__(_policy.Policy)
+    policy._is_pytorch_model = False
+    policy._initial_rng = jax.random.key(17)
+    policy._rng, _ = jax.random.split(policy._initial_rng)
+    assert not np.array_equal(jax.random.key_data(policy._rng), jax.random.key_data(policy._initial_rng))
+
+    policy.reset()
+
+    np.testing.assert_array_equal(jax.random.key_data(policy._rng), jax.random.key_data(policy._initial_rng))
 
 
 @pytest.mark.manual

@@ -62,6 +62,11 @@ def main(deploy_cfg):
             PolicyServerConfig(
                 host=host,
                 port=int(port),
+                # The synchronous Isaac client cannot service protocol pings
+                # during long scene resets. Keepalive is therefore request-
+                # driven for this local adapter; request timeouts remain active.
+                ws_ping_interval_s=None,
+                ws_ping_timeout_s=None,
             ),
         )
         try:
