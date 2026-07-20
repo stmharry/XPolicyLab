@@ -15,6 +15,7 @@ dependencies = [
     "fsspec[gcs]>=2024.6.0",
     "h5py>=3.11.0",
     "imageio>=2.36.1",
+    "imageio-ffmpeg>=0.6.0",
     "jax[cuda12]==0.5.3",
     "jaxtyping==0.2.36",
     "ml_collections==1.0.0",
