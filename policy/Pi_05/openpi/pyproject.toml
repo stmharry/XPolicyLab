@@ -29,7 +29,7 @@ dependencies = [
     "torch==2.10.0",
     "torchvision==0.25.0",
     "torchcodec==0.10.0",
-    "tensorboard>=2.18.0",
+    "tensorboard==2.18.0",
     "tqdm-loggable>=0.2",
     "typing-extensions>=4.12.2",
     "tyro>=0.9.5",
