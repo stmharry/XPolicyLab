@@ -22,7 +22,7 @@ train_job=$(sbatch --parsable \
   --export=ALL,PI05_CKPT_NAME=real_piper_6task \
   "${POLICY_ROOT}/slurm/pi05_piper_train.sbatch")
 
-DATA_JOB="${data_job}" SMOKE_JOB="${smoke_job}" TRAIN_JOB="${train_job}" python - <<'PY'
+DATA_JOB="${data_job}" SMOKE_JOB="${smoke_job}" TRAIN_JOB="${train_job}" python3 - <<'PY'
 import json
 import os
 from pathlib import Path
