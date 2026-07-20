@@ -18,6 +18,16 @@ mkdir -p "${RUNTIME_ROOT}"
   uv sync --frozen --group lerobot
 )
 
+# opencv-python and opencv-python-headless share the same cv2 files. Repair a
+# migrated environment where removing the GUI wheel also removed those files.
+if ! (cd "${OPENPI_ROOT}" && uv run --no-sync python -c 'import cv2') >/dev/null 2>&1; then
+  uv pip install \
+    --python "${UV_PROJECT_ENVIRONMENT}/bin/python" \
+    --reinstall \
+    --no-deps \
+    opencv-python-headless==4.11.0.86
+fi
+
 mkdir -p "${RUNTIME_ROOT}/bin"
 ffmpeg_exe=$(
   cd "${OPENPI_ROOT}"
