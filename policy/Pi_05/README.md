@@ -242,6 +242,23 @@ The usual checkpoint directory is `checkpoints/<bench_name>-<ckpt_name>-<env_cfg
 
 By default, training reads the LeRobot repo produced by `process_data.sh`: `<bench_name>-<ckpt_name>-<env_cfg_type>-<action_type>`. Override this with `OPENPI_LEROBOT_REPO_ID` when reusing an existing dataset.
 
+### Slurm real PiPER run
+
+The pinned cluster workflow prepares the six-task dataset, runs a two-step
+eight-H100 smoke test, and submits the 30,000-step run only after both earlier
+jobs succeed:
+
+```bash
+cd XPolicyLab/policy/Pi_05
+bash slurm/submit_pi05_piper.sh
+```
+
+The training allocation starts TensorBoard on port 6006 and prints the exact
+SSH tunnel command containing its compute node. Events are preserved under
+`/home/harry/pi05-piper/tensorboard/<run-name>`. To view them after training,
+submit `slurm/pi05_piper_tensorboard.sbatch`, optionally passing the event
+directory as its first argument. W&B is disabled for this recipe.
+
 ## Deployment and Evaluation
 
 What it does: serves the policy through XPolicyLab and connects it to a RoboDojo evaluation client. Use `eval.sh` for a same-machine smoke test, or split server/client scripts for debugging and multi-machine evaluation.

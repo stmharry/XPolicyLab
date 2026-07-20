@@ -534,6 +534,11 @@ class TrainConfig:
     # If true, will enable wandb logging.
     wandb_enabled: bool = True
 
+    # If true, write TensorBoard events for metrics and camera sanity checks.
+    tensorboard_enabled: bool = False
+    # Optional exact TensorBoard log directory.
+    tensorboard_dir_override: str | None = None
+
     # Used to pass metadata to the policy server.
     policy_metadata: dict[str, Any] | None = None
 
@@ -556,6 +561,12 @@ class TrainConfig:
         if self.checkpoint_dir_override:
             return pathlib.Path(self.checkpoint_dir_override).resolve()
         return (pathlib.Path(self.checkpoint_base_dir) / self.name / self.exp_name).resolve()
+
+    @property
+    def tensorboard_dir(self) -> pathlib.Path:
+        if self.tensorboard_dir_override:
+            return pathlib.Path(self.tensorboard_dir_override).resolve()
+        return self.checkpoint_dir / "tensorboard"
 
     @property
     def trainable_filter(self) -> nnx.filterlib.Filter:
@@ -675,6 +686,7 @@ _CONFIGS = [
         save_interval=1_000,
         keep_period=5_000,
         wandb_enabled=False,
+        tensorboard_enabled=True,
         policy_metadata={
             "checkpoint_profile": "robodojo_real_piper_6task",
             "embodiment_contract": "bimanual_piper",

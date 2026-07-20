@@ -1,5 +1,6 @@
 import dataclasses
 import functools
+import json
 import logging
 import os
 import platform
@@ -14,6 +15,7 @@ import jax.experimental
 import jax.numpy as jnp
 import numpy as np
 import optax
+from torch.utils.tensorboard import SummaryWriter
 import tqdm_loggable.auto as tqdm
 import wandb
 
@@ -50,7 +52,6 @@ def init_logging():
 
 def init_wandb(config: _config.TrainConfig, *, resuming: bool, log_code: bool = False, enabled: bool = True):
     if not enabled:
-        wandb.init(mode="disabled")
         return
 
     ckpt_dir = config.checkpoint_dir
@@ -69,6 +70,33 @@ def init_wandb(config: _config.TrainConfig, *, resuming: bool, log_code: bool = 
 
     if log_code:
         wandb.run.log_code(epath.Path(__file__).parent.parent)
+
+
+def init_tensorboard(config: _config.TrainConfig, *, purge_step: int | None = None) -> SummaryWriter | None:
+    if not config.tensorboard_enabled:
+        return None
+    config.tensorboard_dir.mkdir(parents=True, exist_ok=True)
+    writer = SummaryWriter(log_dir=str(config.tensorboard_dir), purge_step=purge_step)
+    writer.add_text("hparams/config", json.dumps(dataclasses.asdict(config), default=str, indent=2), global_step=0)
+    writer.flush()
+    return writer
+
+
+def camera_strip(images: dict[str, Any], *, max_samples: int = 5) -> np.ndarray:
+    """Return an NHWC batch with camera views concatenated from left to right."""
+    arrays = [np.asarray(image) for image in images.values()]
+    if not arrays:
+        raise ValueError("At least one camera is required for the TensorBoard strip.")
+    sample_count = min(max_samples, *(array.shape[0] for array in arrays))
+    strips = np.stack([np.concatenate([array[index] for array in arrays], axis=1) for index in range(sample_count)])
+    if strips.dtype != np.uint8:
+        strips = np.asarray(strips, dtype=np.float32)
+        if strips.min() >= 0.0 and strips.max() <= 1.0:
+            strips = strips * 255.0
+        elif strips.min() >= -1.0 and strips.max() <= 1.0:
+            strips = (strips + 1.0) * 127.5
+        strips = np.clip(strips, 0.0, 255.0).astype(np.uint8)
+    return strips
 
 
 def _load_weights_and_validate(loader: _weight_loaders.WeightLoader, params_shape: at.Params) -> at.Params:
@@ -228,19 +256,22 @@ def main(config: _config.TrainConfig):
     batch = next(data_iter)
     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
 
-    # Log images from first batch to sanity check.
-    images_to_log = [
-        wandb.Image(np.concatenate([np.array(img[i]) for img in batch[0].images.values()], axis=1))
-        for i in range(min(5, len(next(iter(batch[0].images.values())))))
-    ]
-    wandb.log({"camera_views": images_to_log}, step=0)
-
     train_state, train_state_sharding = init_train_state(config, init_rng, mesh, resume=resuming)
     jax.block_until_ready(train_state)
     logging.info(f"Initialized train state:\n{training_utils.array_tree_to_info(train_state.params)}")
 
     if resuming:
         train_state = _checkpoints.restore_state(checkpoint_manager, train_state, data_loader)
+
+    start_step = int(train_state.step)
+    tensorboard = init_tensorboard(config, purge_step=start_step if resuming else None)
+    if not resuming:
+        image_strip = camera_strip(batch[0].images)
+        if config.wandb_enabled:
+            wandb.log({"camera_views": [wandb.Image(image) for image in image_strip]}, step=0)
+        if tensorboard is not None:
+            tensorboard.add_images("camera_views", image_strip, global_step=0, dataformats="NHWC")
+            tensorboard.flush()
 
     ptrain_step = jax.jit(
         functools.partial(train_step, config),
@@ -249,7 +280,6 @@ def main(config: _config.TrainConfig):
         donate_argnums=(1,),
     )
 
-    start_step = int(train_state.step)
     pbar = tqdm.tqdm(
         range(start_step, config.num_train_steps),
         initial=start_step,
@@ -258,6 +288,7 @@ def main(config: _config.TrainConfig):
     )
 
     infos = []
+    learning_rate_schedule = config.lr_schedule.create()
     for step in pbar:
         with sharding.set_mesh(mesh):
             train_state, info = ptrain_step(train_rng, train_state, batch)
@@ -265,9 +296,15 @@ def main(config: _config.TrainConfig):
         if step % config.log_interval == 0:
             stacked_infos = common_utils.stack_forest(infos)
             reduced_info = jax.device_get(jax.tree.map(jnp.mean, stacked_infos))
+            reduced_info["learning_rate"] = float(jax.device_get(learning_rate_schedule(step)))
             info_str = ", ".join(f"{k}={v:.4f}" for k, v in reduced_info.items())
             pbar.write(f"Step {step}: {info_str}")
-            wandb.log(reduced_info, step=step)
+            if config.wandb_enabled:
+                wandb.log(reduced_info, step=step)
+            if tensorboard is not None:
+                for name, value in reduced_info.items():
+                    tensorboard.add_scalar(name, float(value), global_step=step)
+                tensorboard.flush()
             infos = []
         batch = next(data_iter)
 
@@ -276,6 +313,8 @@ def main(config: _config.TrainConfig):
 
     logging.info("Waiting for checkpoint manager to finish")
     checkpoint_manager.wait_until_finished()
+    if tensorboard is not None:
+        tensorboard.close()
 
 
 if __name__ == "__main__":
