@@ -190,6 +190,27 @@ bash process_data.sh RoboDojo stack_bowls_ablation arx_x5 joint stack_bowls
 bash process_data.sh RoboDojo stack_bowls_50ep arx_x5 joint 50 stack_bowls
 ```
 
+### RoboDojo real PiPER six-task co-training data
+
+The real PiPER recipe is intentionally separate from the simulator converter
+and the `pi05_piper_bimanual_v1` evaluation profile. It pins the RoboDojo Hub
+dataset revision, requires exactly 100 episodes from each of the six real-world
+tasks, validates the released 30 Hz HDF5 contract, and writes a video-backed
+LeRobot v3 dataset with 14D bimanual joint actions.
+
+```bash
+cd XPolicyLab/policy/Pi_05
+export PI05_PIPER_WORK_ROOT=/home/harry/pi05-piper
+bash process_robodojo_real_piper.sh --overwrite
+```
+
+The stable LeRobot dataset ID is
+`RoboDojo-real_piper_6task-bimanual_piper-joint`. Conversion fails rather than
+skipping malformed episodes and writes `robodojo_real_piper_manifest.json`
+after validating 600 episodes and 539,737 frames. The wrapper also computes
+the quantile normalization statistics required by
+`pi05_base_aloha_full_real_piper_seed_0`.
+
 ## Model Training
 
 What it does: starts the policy-specific training recipe through the XPolicyLab wrapper and writes checkpoints under this adapter directory.
