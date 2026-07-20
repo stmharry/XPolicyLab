@@ -29,7 +29,7 @@ def test_camera_strip_is_nhwc_rgb():
 
 def test_tensorboard_contains_hparams_metrics_and_images(tmp_path: Path):
     config = dataclasses.replace(
-        _config.get_config("debug"),
+        _config.get_config("pi05_base_aloha_full_real_piper_seed_0"),
         exp_name="tensorboard-test",
         checkpoint_dir_override=str(tmp_path / "checkpoint"),
         tensorboard_enabled=True,
