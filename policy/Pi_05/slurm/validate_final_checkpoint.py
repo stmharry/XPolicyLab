@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from openpi import transforms
 from openpi.policies import policy_config
 from openpi.training import config as train_config
 
@@ -16,6 +17,24 @@ CAMERA_KEYS = (
     "observation.images.cam_left_wrist",
     "observation.images.cam_right_wrist",
 )
+
+
+def _inference_repack() -> transforms.Group:
+    return transforms.Group(
+        inputs=[
+            transforms.RepackTransform(
+                {
+                    "images": {
+                        "cam_high": "observation.images.cam_high",
+                        "cam_left_wrist": "observation.images.cam_left_wrist",
+                        "cam_right_wrist": "observation.images.cam_right_wrist",
+                    },
+                    "state": "observation.state",
+                    "prompt": "prompt",
+                }
+            )
+        ]
+    )
 
 
 def _latest_checkpoint(checkpoint_root: Path, num_train_steps: int) -> Path:
@@ -60,11 +79,10 @@ def validate(args: argparse.Namespace) -> dict[str, object]:
         train_config.get_config(args.config),
         assets_base_dir=str(args.assets_base_dir.resolve()),
     )
-    data_config = config.data.create(config.assets_dirs, config.model)
     policy = policy_config.create_trained_policy(
         config,
         checkpoint,
-        repack_transforms=data_config.repack_transforms,
+        repack_transforms=_inference_repack(),
     )
     result = policy.infer(observation)
     actions = np.asarray(result["actions"])

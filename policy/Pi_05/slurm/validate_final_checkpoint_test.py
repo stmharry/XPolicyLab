@@ -5,7 +5,25 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from validate_final_checkpoint import _latest_checkpoint  # noqa: E402
+from validate_final_checkpoint import _inference_repack, _latest_checkpoint  # noqa: E402
+
+
+def test_inference_repack_does_not_require_ground_truth_action() -> None:
+    sample = {
+        "observation.images.cam_high": "high",
+        "observation.images.cam_left_wrist": "left",
+        "observation.images.cam_right_wrist": "right",
+        "observation.state": "state",
+        "prompt": "prompt",
+    }
+
+    repacked = _inference_repack().inputs[0](sample)
+
+    assert repacked == {
+        "images": {"cam_high": "high", "cam_left_wrist": "left", "cam_right_wrist": "right"},
+        "state": "state",
+        "prompt": "prompt",
+    }
 
 
 def test_latest_checkpoint_requires_exact_final_step(tmp_path: Path) -> None:
