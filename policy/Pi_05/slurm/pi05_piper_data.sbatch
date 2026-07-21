@@ -12,7 +12,7 @@
 set -euo pipefail
 
 srun \
-  --container-image=nvcr.io#nvidia/pytorch:25.04-py3 \
+  --container-image=nvcr.io#nvidia/pytorch:24.10-py3 \
   --container-mounts=/home/harry/pi05-piper:/workspace/pi05-piper \
   --container-workdir=/workspace/pi05-piper/RoboDojo \
   bash /workspace/pi05-piper/RoboDojo/XPolicyLab/policy/Pi_05/slurm/run_data_in_container.sh
