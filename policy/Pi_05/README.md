@@ -270,7 +270,8 @@ bash slurm/submit_pi05_piper_finalize.sh <training-job-id>
 The finalizer writes
 `/home/harry/pi05-piper/manifests/RoboDojo-real_piper_6task-bimanual_piper-joint-0-offline-validation.json`
 and fails unless the policy produces finite `50x14` actions from three valid
-PiPER camera frames and a finite 14D state.
+PiPER camera frames and a finite 14D state. OpenPI numbers optimizer updates
+from zero, so the terminal checkpoint for 30,000 updates is `29999`.
 
 ## Deployment and Evaluation
 

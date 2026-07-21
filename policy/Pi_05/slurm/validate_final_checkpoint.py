@@ -18,7 +18,10 @@ CAMERA_KEYS = (
 )
 
 
-def _latest_checkpoint(checkpoint_root: Path, expected_step: int) -> Path:
+def _latest_checkpoint(checkpoint_root: Path, num_train_steps: int) -> Path:
+    # OpenPI enumerates optimizer updates from zero, so a 30,000-update run
+    # writes its terminal checkpoint at step 29,999.
+    expected_step = num_train_steps - 1
     steps = sorted(
         int(path.name) for path in checkpoint_root.iterdir() if path.is_dir() and path.name.isdigit()
     )
@@ -37,7 +40,7 @@ def validate(args: argparse.Namespace) -> dict[str, object]:
     except ModuleNotFoundError:
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset  # noqa: PLC0415
 
-    checkpoint = _latest_checkpoint(args.checkpoint_root.resolve(), args.expected_step)
+    checkpoint = _latest_checkpoint(args.checkpoint_root.resolve(), args.num_train_steps)
     dataset = LeRobotDataset(repo_id=args.repo_id, root=args.dataset_root.resolve(), video_backend="pyav")
     sample = dataset[args.sample_index]
 
@@ -70,7 +73,8 @@ def validate(args: argparse.Namespace) -> dict[str, object]:
 
     payload: dict[str, object] = {
         "checkpoint": str(checkpoint),
-        "checkpoint_step": args.expected_step,
+        "checkpoint_step": args.num_train_steps - 1,
+        "num_train_steps": args.num_train_steps,
         "sample_index": args.sample_index,
         "task": sample["task"],
         "camera_shapes": camera_shapes,
@@ -91,7 +95,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-root", type=Path, required=True)
     parser.add_argument("--checkpoint-root", type=Path, required=True)
     parser.add_argument("--assets-base-dir", type=Path, required=True)
-    parser.add_argument("--expected-step", type=int, default=30_000)
+    parser.add_argument("--num-train-steps", type=int, default=30_000)
     parser.add_argument("--sample-index", type=int, default=0)
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
