@@ -10,6 +10,8 @@ export PI05_PIPER_WORK_ROOT="${WORK_ROOT}"
 export HF_LEROBOT_HOME="${WORK_ROOT}/data/lerobot"
 export OPENPI_ASSETS_BASE_DIR="${WORK_ROOT}/assets"
 export HF_HOME="${WORK_ROOT}/cache/huggingface"
+export HF_HUB_DISABLE_XET=1
+export HF_HUB_DOWNLOAD_TIMEOUT=600
 export XDG_CACHE_HOME="${WORK_ROOT}/cache/xdg"
 
 source "${POLICY_ROOT}/slurm/bootstrap_runtime.sh" "${OPENPI_ROOT}"

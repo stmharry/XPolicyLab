@@ -8,6 +8,7 @@ import dataclasses
 import json
 from pathlib import Path
 import shutil
+import time
 from typing import Any
 
 import cv2
@@ -175,15 +176,26 @@ def discover_episode_files(raw_root: Path, tasks: Sequence[str] = TASKS) -> list
 
 def download_source(raw_root: Path) -> None:
     from huggingface_hub import snapshot_download  # noqa: PLC0415
+    from huggingface_hub.errors import HfHubHTTPError  # noqa: PLC0415
 
     allow_patterns = [f"data/RoboDojo_real/{task}/piper/data/*.hdf5" for task in TASKS]
-    snapshot_download(
-        repo_id=SOURCE_REPO_ID,
-        repo_type="dataset",
-        revision=SOURCE_REVISION,
-        local_dir=raw_root,
-        allow_patterns=allow_patterns,
-    )
+    for attempt in range(6):
+        try:
+            snapshot_download(
+                repo_id=SOURCE_REPO_ID,
+                repo_type="dataset",
+                revision=SOURCE_REVISION,
+                local_dir=raw_root,
+                allow_patterns=allow_patterns,
+                max_workers=4,
+            )
+            return
+        except HfHubHTTPError as exc:
+            if exc.response is None or exc.response.status_code != 429 or attempt == 5:
+                raise
+            delay_s = min(60 * 2**attempt, 600)
+            print(f"Hugging Face rate limit hit; retrying in {delay_s}s (attempt {attempt + 2}/6).")
+            time.sleep(delay_s)
 
 
 def create_dataset(repo_id: str, root: Path, *, encoder_threads: int | None):
