@@ -259,6 +259,19 @@ SSH tunnel command containing its compute node. Events are preserved under
 submit `slurm/pi05_piper_tensorboard.sbatch`, optionally passing the event
 directory as its first argument. W&B is disabled for this recipe.
 
+To gate completion on TensorBoard validation plus offline inference from the
+30,000-step checkpoint against a real PiPER episode, submit the one-H100
+finalizer with an `afterok` dependency on the training job:
+
+```bash
+bash slurm/submit_pi05_piper_finalize.sh <training-job-id>
+```
+
+The finalizer writes
+`/home/harry/pi05-piper/manifests/RoboDojo-real_piper_6task-bimanual_piper-joint-0-offline-validation.json`
+and fails unless the policy produces finite `50x14` actions from three valid
+PiPER camera frames and a finite 14D state.
+
 ## Deployment and Evaluation
 
 What it does: serves the policy through XPolicyLab and connects it to a RoboDojo evaluation client. Use `eval.sh` for a same-machine smoke test, or split server/client scripts for debugging and multi-machine evaluation.
