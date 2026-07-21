@@ -4,7 +4,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=2
-#SBATCH --mem=16G
+#SBATCH --mem=64G
 #SBATCH --time=1-00:00:00
 #SBATCH --output=/home/harry/pi05-piper/logs/%x-%j.out
 #SBATCH --error=/home/harry/pi05-piper/logs/%x-%j.err
