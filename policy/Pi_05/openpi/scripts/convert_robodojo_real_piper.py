@@ -233,7 +233,10 @@ def validate_converted_dataset(repo_id: str, dataset_root: Path) -> dict[str, in
     except ModuleNotFoundError:
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset  # noqa: PLC0415
 
-    dataset = LeRobotDataset(repo_id=repo_id, root=dataset_root)
+    # Do not rely on LeRobot's auto-selection here. TorchCodec can be importable
+    # while unusable when the runtime only exposes a static FFmpeg binary. The
+    # training data config also pins PyAV, so validate with the same backend.
+    dataset = LeRobotDataset(repo_id=repo_id, root=dataset_root, video_backend="pyav")
     if dataset.fps != FPS:
         raise ValueError(f"Converted dataset fps is {dataset.fps}, expected {FPS}.")
     if dataset.num_episodes != len(TASKS) * EXPECTED_EPISODES_PER_TASK:
@@ -256,6 +259,23 @@ def convert(args: argparse.Namespace) -> Path:
     raw_root = args.raw_root.resolve()
     output_root = args.output_root.resolve()
     dataset_root = output_root / args.repo_id
+    if args.validate_only:
+        if not dataset_root.exists():
+            raise FileNotFoundError(f"Converted dataset does not exist: {dataset_root}.")
+        episode_files = discover_episode_files(raw_root)
+        task_counts = {task: sum(file_task == task for file_task, _ in episode_files) for task in TASKS}
+        validation = validate_converted_dataset(args.repo_id, dataset_root)
+        manifest = {
+            "source_repo_id": SOURCE_REPO_ID,
+            "source_revision": SOURCE_REVISION,
+            "repo_id": args.repo_id,
+            "tasks": task_counts,
+            **validation,
+        }
+        manifest_path = dataset_root / "robodojo_real_piper_manifest.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
+        return manifest_path
+
     if not args.skip_download:
         download_source(raw_root)
     episode_files = discover_episode_files(raw_root)
@@ -299,6 +319,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--repo-id", default=OUTPUT_REPO_ID)
     parser.add_argument("--skip-download", action="store_true")
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help="Validate an existing completed dataset and write its manifest without reconverting episodes.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--encoder-threads", type=int, default=4)
     return parser.parse_args()

@@ -15,4 +15,10 @@ export HF_HUB_DOWNLOAD_TIMEOUT=600
 export XDG_CACHE_HOME="${WORK_ROOT}/cache/xdg"
 
 source "${POLICY_ROOT}/slurm/bootstrap_runtime.sh" "${OPENPI_ROOT}"
-bash "${POLICY_ROOT}/process_robodojo_real_piper.sh" --overwrite
+dataset_root="${HF_LEROBOT_HOME}/RoboDojo-real_piper_6task-bimanual_piper-joint"
+if [[ -f "${dataset_root}/meta/info.json" ]]; then
+  echo "[Pi_05] Existing finalized dataset found; validating without overwrite."
+  bash "${POLICY_ROOT}/process_robodojo_real_piper.sh" --skip-download --validate-only
+else
+  bash "${POLICY_ROOT}/process_robodojo_real_piper.sh" --overwrite
+fi
