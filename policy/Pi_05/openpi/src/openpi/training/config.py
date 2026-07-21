@@ -83,6 +83,10 @@ class DataConfig:
     # before the data is normalized. See `model.Observation` and `model.Actions` to learn about the
     # normalized data.
     data_transforms: _transforms.Group = dataclasses.field(default_factory=_transforms.Group)
+    # Optional state/action-only transforms used while computing normalization
+    # statistics. When present, video decoding and the regular input transforms
+    # are skipped so statistics do not spend time materializing unused images.
+    norm_stat_transforms: _transforms.Group | None = None
     # Model specific transforms. Will be applied after the data is normalized.
     model_transforms: _transforms.Group = dataclasses.field(default_factory=_transforms.Group)
     # If true, will use quantile normalization. Otherwise, normal z-score normalization will be used.
@@ -669,7 +673,20 @@ _CONFIGS = [
                     )
                 ]
             ),
-            base_config=DataConfig(prompt_from_task=True),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                norm_stat_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "state": "observation.state",
+                                "actions": "action",
+                            }
+                        ),
+                        _transforms.DeltaActions(_transforms.make_bool_mask(6, -1, 6, -1)),
+                    ]
+                ),
+            ),
         ),
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         lr_schedule=_optimizer.CosineDecaySchedule(

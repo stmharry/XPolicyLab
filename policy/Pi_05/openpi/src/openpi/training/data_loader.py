@@ -3,7 +3,7 @@ import logging
 import multiprocessing
 import os
 import typing
-from typing import Literal, Protocol, SupportsIndex, TypeVar
+from typing import Any, Literal, Protocol, SupportsIndex, TypeVar
 
 import jax
 import jax.numpy as jnp
@@ -133,8 +133,19 @@ class FakeDataset(Dataset):
         return self._num_samples
 
 
+def _disable_video_loading(dataset: Any) -> None:
+    """Remove video features from a LeRobot dataset's in-memory metadata only."""
+    dataset.meta.info["features"] = {
+        key: feature for key, feature in dataset.meta.info["features"].items() if feature["dtype"] != "video"
+    }
+
+
 def create_torch_dataset(
-    data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
+    data_config: _config.DataConfig,
+    action_horizon: int,
+    model_config: _model.BaseModelConfig,
+    *,
+    load_videos: bool = True,
 ) -> Dataset:
     """Create a dataset for training."""
     repo_id = data_config.repo_id
@@ -151,6 +162,8 @@ def create_torch_dataset(
         },
         video_backend=data_config.video_backend,
     )
+    if not load_videos:
+        _disable_video_loading(dataset)
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])

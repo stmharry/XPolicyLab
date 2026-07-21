@@ -33,12 +33,22 @@ def create_torch_dataloader(
 ) -> tuple[_data_loader.Dataset, int]:
     if data_config.repo_id is None:
         raise ValueError("Data config must have a repo_id")
-    dataset = _data_loader.create_torch_dataset(data_config, action_horizon, model_config)
+    norm_stat_transforms = data_config.norm_stat_transforms
+    dataset = _data_loader.create_torch_dataset(
+        data_config,
+        action_horizon,
+        model_config,
+        load_videos=norm_stat_transforms is None,
+    )
+    input_transforms = (
+        norm_stat_transforms.inputs
+        if norm_stat_transforms is not None
+        else (*data_config.repack_transforms.inputs, *data_config.data_transforms.inputs)
+    )
     dataset = _data_loader.TransformedDataset(
         dataset,
         [
-            *data_config.repack_transforms.inputs,
-            *data_config.data_transforms.inputs,
+            *input_transforms,
             # Remove strings since they are not supported by JAX and are not needed to compute norm stats.
             RemoveStrings(),
         ],
