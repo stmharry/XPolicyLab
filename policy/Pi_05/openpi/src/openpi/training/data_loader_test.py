@@ -7,6 +7,24 @@ from openpi.training import config as _config
 from openpi.training import data_loader as _data_loader
 
 
+def test_cached_pyav_reader_reuses_open_container(monkeypatch):
+    _data_loader._PYAV_READER_CACHE.clear()
+    created = []
+
+    def make_reader(path, stream):
+        reader = object()
+        created.append((path, stream, reader))
+        return reader
+
+    monkeypatch.setattr(_data_loader.torchvision.io, "VideoReader", make_reader)
+    first = _data_loader._get_cached_pyav_reader("episode.mp4")
+    second = _data_loader._get_cached_pyav_reader("episode.mp4")
+
+    assert first is second
+    assert len(created) == 1
+    _data_loader._PYAV_READER_CACHE.clear()
+
+
 def test_torch_data_loader():
     config = pi0_config.Pi0Config(action_dim=24, action_horizon=50, max_token_len=48)
     dataset = _data_loader.FakeDataset(config, 16)

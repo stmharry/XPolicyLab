@@ -2,6 +2,7 @@ from collections.abc import Iterator, Sequence
 import logging
 import multiprocessing
 import os
+import threading
 import typing
 from typing import Any, Literal, Protocol, SupportsIndex, TypeVar
 
@@ -9,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import torch
+import torchvision
 
 try:
     import lerobot.datasets.lerobot_dataset as lerobot_dataset
@@ -23,6 +25,68 @@ from openpi.training.droid_rlds_dataset import DroidRldsDataset
 import openpi.transforms as _transforms
 
 T_co = TypeVar("T_co", covariant=True)
+
+_PYAV_READER_CACHE: dict[str, Any] = {}
+_PYAV_READER_CACHE_LOCK = threading.Lock()
+
+
+def _get_cached_pyav_reader(video_path: str):
+    """Return a persistent torchvision/PyAV reader for the current worker."""
+    with _PYAV_READER_CACHE_LOCK:
+        reader = _PYAV_READER_CACHE.get(video_path)
+        if reader is None:
+            torchvision.set_video_backend("pyav")
+            reader = torchvision.io.VideoReader(video_path, "video")
+            _PYAV_READER_CACHE[video_path] = reader
+        return reader
+
+
+def _decode_video_frames_cached_pyav(
+    video_path: str | os.PathLike[str], timestamps: list[float], tolerance_s: float
+) -> torch.Tensor:
+    """Decode frames while reusing the open PyAV container within each worker."""
+    reader = _get_cached_pyav_reader(str(video_path))
+    first_ts = min(timestamps)
+    last_ts = max(timestamps)
+    reader.seek(first_ts, keyframes_only=True)
+
+    loaded_frames = []
+    loaded_ts = []
+    for frame in reader:
+        current_ts = frame["pts"]
+        loaded_frames.append(frame["data"])
+        loaded_ts.append(current_ts)
+        if current_ts >= last_ts:
+            break
+    if not loaded_frames:
+        raise ValueError(f"No video frame decoded from {video_path} at timestamps {timestamps}.")
+
+    query_ts = torch.tensor(timestamps)
+    decoded_ts = torch.tensor(loaded_ts)
+    distance = torch.cdist(query_ts[:, None], decoded_ts[:, None], p=1)
+    minimum, closest_indices = distance.min(1)
+    if not (minimum < tolerance_s).all():
+        raise ValueError(
+            f"Decoded timestamps for {video_path} exceed tolerance {tolerance_s}: "
+            f"queries={timestamps}, minimum_distance={minimum.tolist()}."
+        )
+    closest_frames = torch.stack([loaded_frames[index] for index in closest_indices])
+    return closest_frames.to(torch.float32) / 255.0
+
+
+class _CachedPyAVLeRobotDataset(lerobot_dataset.LeRobotDataset):
+    """LeRobot dataset using persistent per-worker PyAV readers."""
+
+    def _query_videos(self, query_timestamps: dict[str, list[float]], ep_idx: int) -> dict[str, torch.Tensor]:
+        episode = self.meta.episodes[ep_idx]
+        item = {}
+        for video_key, query_ts in query_timestamps.items():
+            from_timestamp = episode[f"videos/{video_key}/from_timestamp"]
+            shifted_query_ts = [from_timestamp + timestamp for timestamp in query_ts]
+            video_path = self.root / self.meta.get_video_file_path(ep_idx, video_key)
+            frames = _decode_video_frames_cached_pyav(video_path, shifted_query_ts, self.tolerance_s)
+            item[video_key] = frames.squeeze(0)
+        return item
 
 
 class Dataset(Protocol[T_co]):
@@ -155,12 +219,15 @@ def create_torch_dataset(
         return FakeDataset(model_config, num_samples=1024)
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    dataset = lerobot_dataset.LeRobotDataset(
+    dataset_class = (
+        _CachedPyAVLeRobotDataset if data_config.video_backend == "pyav_cached" else lerobot_dataset.LeRobotDataset
+    )
+    dataset = dataset_class(
         data_config.repo_id,
         delta_timestamps={
             key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
         },
-        video_backend=data_config.video_backend,
+        video_backend="pyav" if data_config.video_backend == "pyav_cached" else data_config.video_backend,
     )
     if not load_videos:
         _disable_video_loading(dataset)
