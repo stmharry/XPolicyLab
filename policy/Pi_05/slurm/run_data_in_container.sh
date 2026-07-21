@@ -13,6 +13,9 @@ export HF_HOME="${WORK_ROOT}/cache/huggingface"
 export HF_HUB_DISABLE_XET=1
 export HF_HUB_DOWNLOAD_TIMEOUT=600
 export XDG_CACHE_HOME="${WORK_ROOT}/cache/xdg"
+# This stage is intentionally CPU-only. The shared environment includes the
+# CUDA JAX plugin for training, so prevent its backend probe from calling cuInit.
+export JAX_PLATFORMS=cpu
 
 source "${POLICY_ROOT}/slurm/bootstrap_runtime.sh" "${OPENPI_ROOT}"
 dataset_root="${HF_LEROBOT_HOME}/RoboDojo-real_piper_6task-bimanual_piper-joint"
