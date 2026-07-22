@@ -56,7 +56,9 @@ uv run python ../slurm/write_run_manifest.py \
 bash "${POLICY_ROOT}/train.sh" RoboDojo "${CKPT_NAME}" bimanual_arx_x5 joint 0 0,1,2,3,4,5,6,7
 
 job_log="${WORK_ROOT}/logs/${SLURM_JOB_NAME}-${SLURM_JOB_ID}.out"
-if ! grep -q "data_replicas=4, fsdp_group_size=2, total_devices=8" "${job_log}"; then
+job_error_log="${WORK_ROOT}/logs/${SLURM_JOB_NAME}-${SLURM_JOB_ID}.err"
+if ! grep -q "data_replicas=4, fsdp_group_size=2, total_devices=8" \
+  "${job_log}" "${job_error_log}"; then
   echo "[Pi_05 ARX X5] Expected four-replica/two-device FSDP layout was not logged." >&2
   exit 1
 fi

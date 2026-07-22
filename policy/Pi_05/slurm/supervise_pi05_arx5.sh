@@ -29,7 +29,10 @@ jobs = json.loads(pipeline.read_text())
 
 def state(job_id):
     active = subprocess.run(
-        ["squeue", "-h", "-j", str(job_id), "-o", "%T"], text=True, capture_output=True, check=True
+        ["squeue", "-h", "-j", str(job_id), "-o", "%T"],
+        text=True,
+        capture_output=True,
+        check=False,
     ).stdout.strip()
     if active:
         return active.splitlines()[0]
