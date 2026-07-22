@@ -716,6 +716,72 @@ _CONFIGS = [
         },
     ),
     TrainConfig(
+        name="pi05_base_aloha_full_real_arx-x5_seed_0",
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=50),
+        data=LeRobotAlohaDataConfig(
+            repo_id="RoboDojo-real_arx_x5_6task-bimanual_arx_x5-joint",
+            assets=AssetsConfig(asset_id="RoboDojo-real_arx_x5_6task-bimanual_arx_x5-joint"),
+            use_delta_joint_actions=True,
+            adapt_to_pi=False,
+            repack_transforms=_transforms.Group(
+                inputs=[
+                    _transforms.RepackTransform(
+                        {
+                            "images": {
+                                "cam_high": "observation.images.cam_high",
+                                "cam_left_wrist": "observation.images.cam_left_wrist",
+                                "cam_right_wrist": "observation.images.cam_right_wrist",
+                            },
+                            "state": "observation.state",
+                            "actions": "action",
+                            "prompt": "prompt",
+                        }
+                    )
+                ]
+            ),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                video_backend="pyav_cached",
+                norm_stat_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "state": "observation.state",
+                                "actions": "action",
+                            }
+                        ),
+                        _transforms.DeltaActions(_transforms.make_bool_mask(6, -1, 6, -1)),
+                    ]
+                ),
+            ),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=2.5e-5,
+            decay_steps=30_000,
+            decay_lr=2.5e-6,
+        ),
+        seed=0,
+        batch_size=256,
+        num_workers=32,
+        fsdp_devices=2,
+        num_train_steps=30_000,
+        log_interval=100,
+        save_interval=1_000,
+        keep_period=5_000,
+        wandb_enabled=False,
+        tensorboard_enabled=True,
+        policy_metadata={
+            "checkpoint_profile": "robodojo_real_arx_x5_6task",
+            "embodiment_contract": "bimanual_arx_x5",
+            "dataset_frame": "arx_x5_bimanual_absolute",
+            "action_type": "delta_arm_absolute_gripper",
+            "action_horizon": 50,
+            "control_rate_hz": 30,
+        },
+    ),
+    TrainConfig(
         name="pi05_base_aloha_full_sim_arx-x5_seed_0",
         model=pi0_config.Pi0Config(pi05=True),
         data=LeRobotAlohaDataConfig(
