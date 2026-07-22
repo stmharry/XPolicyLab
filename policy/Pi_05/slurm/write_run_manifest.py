@@ -49,16 +49,14 @@ def write_manifest(args: argparse.Namespace) -> Path:
         },
         "dataset": dataset_manifest,
         "training": {
-            "config": "pi05_base_aloha_full_real_piper_seed_0",
-            "base_checkpoint": "gs://openpi-assets/checkpoints/pi05_base",
-            "batch_size": 256,
-            "fsdp_devices": 2,
+            "config": args.config,
+            "base_checkpoint": args.base_checkpoint,
+            "batch_size": args.batch_size,
+            "fsdp_devices": args.fsdp_devices,
             "num_train_steps": int(os.environ.get("OPENPI_NUM_TRAIN_STEPS", "30000")),
             "tensorboard_dir": str(args.tensorboard_dir),
         },
-        "gpus": _command(
-            "nvidia-smi", "--query-gpu=name,uuid,memory.total", "--format=csv,noheader"
-        ).splitlines(),
+        "gpus": _command("nvidia-smi", "--query-gpu=name,uuid,memory.total", "--format=csv,noheader").splitlines(),
         "checkpoints": checkpoints,
         "latest_metrics": _latest_metrics(args.tensorboard_dir),
     }
@@ -77,6 +75,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--node", required=True)
     parser.add_argument("--tensorboard-dir", type=Path, required=True)
     parser.add_argument("--dataset-manifest", type=Path, required=True)
+    parser.add_argument("--config", default="pi05_base_aloha_full_real_piper_seed_0")
+    parser.add_argument("--base-checkpoint", default="gs://openpi-assets/checkpoints/pi05_base")
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--fsdp-devices", type=int, default=2)
     return parser.parse_args()
 
 

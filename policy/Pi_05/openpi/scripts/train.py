@@ -236,6 +236,12 @@ def main(config: _config.TrainConfig):
     train_rng, init_rng = jax.random.split(rng)
 
     mesh = sharding.make_mesh(config.fsdp_devices)
+    logging.info(
+        "Device mesh: data_replicas=%d, fsdp_group_size=%d, total_devices=%d",
+        jax.device_count() // config.fsdp_devices,
+        config.fsdp_devices,
+        jax.device_count(),
+    )
     data_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(sharding.DATA_AXIS))
     replicated_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
 
