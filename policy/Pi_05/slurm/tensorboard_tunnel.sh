@@ -27,7 +27,7 @@ from pathlib import Path
 import subprocess
 
 pipeline = json.loads(Path("/home/harry/pi05-arx5/pipeline_jobs.json").read_text())
-for key in ("viewer_job_id", "training_job_id", "smoke_job_id"):
+for key in ("training_job_id", "smoke_job_id", "viewer_job_id"):
     job_id = pipeline.get(key)
     if not job_id:
         continue
